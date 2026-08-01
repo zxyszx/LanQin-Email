@@ -24,6 +24,10 @@ const mailMessagesPageSize = 30
 
 const customFolderDefaultSortOrderBase = 100000
 
+func isAllMailboxID(mailboxID string) bool {
+	return strings.EqualFold(strings.TrimSpace(mailboxID), "all")
+}
+
 type AttachmentInput struct {
 	Filename      string `json:"filename"`
 	ContentType   string `json:"contentType"`
@@ -81,6 +85,10 @@ func (a *App) handleMyMailboxes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMailFolders(w http.ResponseWriter, r *http.Request) {
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		a.handleAllMailFolders(w, r)
+		return
+	}
 	mb, err := a.mailboxForCurrentUser(r)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "mailbox not found")
@@ -101,6 +109,43 @@ func (a *App) handleMailFolders(w http.ResponseWriter, r *http.Request) {
 			WHEN lower(f.name)='trash' THEN 9000
 			ELSE f.sort_order
 		END, f.created_at,f.name`, mb.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load folders")
+		return
+	}
+	defer rows.Close()
+	items := []MailFolder{}
+	for rows.Next() {
+		var f MailFolder
+		if err := rows.Scan(&f.ID, &f.Name, &f.Role, &f.UnreadCount, &f.TotalCount, &f.SortOrder, &f.UIDValidity, &f.UIDNext, &f.HighestModSeq); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to scan folders")
+			return
+		}
+		items = append(items, f)
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (a *App) handleAllMailFolders(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	rows, err := a.db.QueryContext(r.Context(), `SELECT 'all-' || lower(f.name),f.name,f.role,
+		COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0) AS unread,
+		COUNT(m.id) AS total,
+		MIN(f.sort_order),MAX(f.uid_validity),MAX(f.uid_next),MAX(f.highest_modseq)
+		FROM folders f
+		JOIN mailboxes mb ON mb.id=f.mailbox_id
+		LEFT JOIN messages m ON m.folder_id=f.id
+		WHERE mb.user_id=? AND mb.status='active'
+		GROUP BY f.name,f.role
+		ORDER BY CASE
+			WHEN lower(f.name)='inbox' THEN 1000
+			WHEN lower(f.name)='sent' THEN 5000
+			WHEN lower(f.name)='drafts' THEN 6000
+			WHEN lower(f.name)='archive' THEN 7000
+			WHEN lower(f.name)='spam' THEN 8000
+			WHEN lower(f.name)='trash' THEN 9000
+			ELSE MIN(f.sort_order)
+		END, f.name`, user.ID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load folders")
 		return
@@ -345,6 +390,29 @@ func (a *App) nextCustomFolderSortOrder(ctx context.Context, mailboxID string) (
 }
 
 func (a *App) handleMailMessages(w http.ResponseWriter, r *http.Request) {
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		user := currentUser(r)
+		if labelID := strings.TrimSpace(r.URL.Query().Get("labelId")); labelID != "" {
+			if !a.labelBelongsToUser(r.Context(), labelID, user.ID) {
+				respondError(w, http.StatusNotFound, "label not found")
+				return
+			}
+			a.respondMailMessageList(w, r, `EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.id=m.mailbox_id AND mb.user_id=? AND mb.status='active') AND EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id AND ml.label_id=?)`, []any{user.ID, labelID})
+			return
+		}
+		folder := r.URL.Query().Get("folder")
+		if folder == "" {
+			folder = "Inbox"
+		}
+		if normalized, err := normalizeFolderNameForUser(folder); err != nil {
+			badRequest(w, err)
+			return
+		} else {
+			folder = normalized
+		}
+		a.respondMailMessageList(w, r, `EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.id=m.mailbox_id AND mb.user_id=? AND mb.status='active') AND f.name=?`, []any{user.ID, folder})
+		return
+	}
 	mb, err := a.mailboxForCurrentUser(r)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "mailbox not found")
@@ -377,6 +445,11 @@ func (a *App) handleMailMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStarredMessages(w http.ResponseWriter, r *http.Request) {
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		user := currentUser(r)
+		a.respondMailMessageList(w, r, `EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.id=m.mailbox_id AND mb.user_id=? AND mb.status='active') AND m.is_starred=1`, []any{user.ID})
+		return
+	}
 	mb, err := a.mailboxForCurrentUser(r)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "mailbox not found")
@@ -394,9 +467,15 @@ func (a *App) respondMailMessageList(w http.ResponseWriter, r *http.Request, whe
 	limit := mailMessagesPageSize
 
 	if q != "" {
-		where += ` AND (m.subject LIKE ? OR m.from_addr LIKE ? OR m.from_name LIKE ? OR m.snippet LIKE ? OR m.body_text LIKE ?)`
+		where += ` AND (m.subject LIKE ? OR m.from_addr LIKE ? OR m.from_name LIKE ? OR m.to_addrs LIKE ? OR m.cc_addrs LIKE ? OR m.recipient_addr LIKE ? OR m.snippet LIKE ? OR m.body_text LIKE ?)`
 		like := "%" + q + "%"
-		args = append(args, like, like, like, like, like)
+		args = append(args, like, like, like, like, like, like, like, like)
+	}
+	var err error
+	where, args, err = appendMailMessageSearchFilters(r, where, args)
+	if err != nil {
+		badRequest(w, err)
+		return
 	}
 	args = append(args, limit+1, offset)
 	query := `SELECT m.id,m.mailbox_id,m.folder_id,COALESCE(f.name,''),m.message_uid,m.imap_uid,m.imap_modseq,m.message_id,m.subject,m.from_addr,COALESCE(m.from_name,''),m.to_addrs,m.cc_addrs,m.bcc_addrs,m.sent_at,m.received_at,m.snippet,m.is_read,m.is_starred,m.has_attachments,m.size_bytes
@@ -428,7 +507,131 @@ func (a *App) respondMailMessageList(w http.ResponseWriter, r *http.Request, whe
 	respondJSON(w, http.StatusOK, map[string]any{"items": items, "nextCursor": next})
 }
 
+func appendMailMessageSearchFilters(r *http.Request, where string, args []any) (string, []any, error) {
+	if from := strings.TrimSpace(r.URL.Query().Get("from")); from != "" {
+		where += ` AND (m.from_addr LIKE ? OR m.from_name LIKE ?)`
+		like := "%" + from + "%"
+		args = append(args, like, like)
+	}
+	if to := strings.TrimSpace(r.URL.Query().Get("to")); to != "" {
+		where += ` AND (m.to_addrs LIKE ? OR m.cc_addrs LIKE ? OR m.bcc_addrs LIKE ? OR m.recipient_addr LIKE ?)`
+		like := "%" + to + "%"
+		args = append(args, like, like, like, like)
+	}
+	if subject := strings.TrimSpace(r.URL.Query().Get("subject")); subject != "" {
+		where += ` AND m.subject LIKE ?`
+		args = append(args, "%"+subject+"%")
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("attachmentMode"))) {
+	case "with":
+		where += ` AND m.has_attachments=1`
+	case "without":
+		where += ` AND m.has_attachments=0`
+	default:
+		if mailSearchFlag(r, "hasAttachments") {
+			where += ` AND m.has_attachments=1`
+		}
+	}
+	if minSize, ok, err := mailSearchSizeBytes(r.URL.Query().Get("minSizeKb"), "minSizeKb"); err != nil {
+		return where, args, err
+	} else if ok {
+		where += ` AND m.size_bytes>=?`
+		args = append(args, minSize)
+	}
+	if maxSize, ok, err := mailSearchSizeBytes(r.URL.Query().Get("maxSizeKb"), "maxSizeKb"); err != nil {
+		return where, args, err
+	} else if ok {
+		where += ` AND m.size_bytes<=?`
+		args = append(args, maxSize)
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("readStatus"))) {
+	case "read":
+		where += ` AND m.is_read=1`
+	case "unread":
+		where += ` AND m.is_read=0`
+	default:
+		if mailSearchFlag(r, "unread") {
+			where += ` AND m.is_read=0`
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("flagStatus"))) {
+	case "starred":
+		where += ` AND m.is_starred=1`
+	case "unstarred":
+		where += ` AND m.is_starred=0`
+	default:
+		if mailSearchFlag(r, "starred") {
+			where += ` AND m.is_starred=1`
+		}
+	}
+	if start, ok, err := mailSearchDateBoundary(r.URL.Query().Get("startDate"), false); err != nil {
+		return where, args, err
+	} else if ok {
+		where += ` AND m.received_at>=?`
+		args = append(args, start)
+	}
+	if end, ok, err := mailSearchDateBoundary(r.URL.Query().Get("endDate"), true); err != nil {
+		return where, args, err
+	} else if ok {
+		where += ` AND m.received_at<=?`
+		args = append(args, end)
+	}
+	return where, args, nil
+}
+
+func mailSearchFlag(r *http.Request, key string) bool {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func mailSearchDateBoundary(value string, endOfDay bool) (string, bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false, nil
+	}
+	if len(value) == len("2006-01-02") {
+		t, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			return "", false, fmt.Errorf("invalid date %q", value)
+		}
+		if endOfDay {
+			t = t.AddDate(0, 0, 1).Add(-time.Nanosecond)
+		}
+		return t.UTC().Format(time.RFC3339Nano), true, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return "", false, fmt.Errorf("invalid date %q", value)
+	}
+	return t.UTC().Format(time.RFC3339Nano), true, nil
+}
+
+func mailSearchSizeBytes(value string, key string) (int64, bool, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false, nil
+	}
+	kb, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || kb < 0 {
+		return 0, false, fmt.Errorf("invalid %s %q", key, value)
+	}
+	return kb * 1024, true, nil
+}
+
 func (a *App) handleMailLabels(w http.ResponseWriter, r *http.Request) {
+	if isAllMailboxID(r.URL.Query().Get("mailboxId")) {
+		labels, err := a.labelsForUser(r.Context(), currentUser(r).ID)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to load labels")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"items": labels})
+		return
+	}
 	mb, err := a.mailboxForCurrentUser(r)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "mailbox not found")
@@ -1121,15 +1324,23 @@ func (a *App) handleDeleteDraft(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleScheduledSends(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
-	mb, err := a.mailboxForCurrentUser(r)
-	if err != nil {
-		respondError(w, http.StatusNotFound, "mailbox not found")
-		return
+	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
+	args := []any{user.ID}
+	where := `user_id=?`
+	if !isAllMailboxID(mailboxID) {
+		mb, err := a.mailboxForCurrentUser(r)
+		if err != nil {
+			respondError(w, http.StatusNotFound, "mailbox not found")
+			return
+		}
+		where += ` AND mailbox_id=?`
+		args = append(args, mb.ID)
 	}
+	args = append(args, "pending", "sending", "failed")
 	rows, err := a.db.QueryContext(r.Context(), `SELECT id,mailbox_id,draft_id,payload_json,send_at,status,error,created_at,updated_at,sent_at
 		FROM scheduled_sends
-		WHERE user_id=? AND mailbox_id=? AND status IN ('pending','sending','failed')
-		ORDER BY send_at ASC, created_at DESC`, user.ID, mb.ID)
+		WHERE `+where+` AND status IN (?,?,?)
+		ORDER BY send_at ASC, created_at DESC`, args...)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load scheduled sends")
 		return
@@ -1166,20 +1377,28 @@ func (a *App) handleScheduledSends(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSendQueue(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
-	mb, err := a.mailboxForCurrentUser(r)
-	if err != nil {
-		respondError(w, http.StatusNotFound, "mailbox not found")
-		return
-	}
+	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if strings.EqualFold(status, "all") {
+		status = ""
+	}
 	cursorCreatedAt, cursorID, offsetCursor, err := parseSendQueueCursor(r.URL.Query().Get("cursor"))
 	if err != nil {
 		badRequest(w, err)
 		return
 	}
 	limit := 30
-	args := []any{user.ID, mb.ID}
-	where := `mb.user_id=? AND sq.mailbox_id=?`
+	args := []any{user.ID}
+	where := `mb.user_id=?`
+	if !isAllMailboxID(mailboxID) {
+		mb, err := a.mailboxForCurrentUser(r)
+		if err != nil {
+			respondError(w, http.StatusNotFound, "mailbox not found")
+			return
+		}
+		where += ` AND sq.mailbox_id=?`
+		args = append(args, mb.ID)
+	}
 	if status != "" {
 		if !validSendQueueStatus(status) {
 			badRequest(w, errors.New("invalid send queue status"))
@@ -2169,6 +2388,29 @@ func (a *App) labelsForMailbox(ctx context.Context, mailboxID string) ([]MailLab
 	return items, rows.Err()
 }
 
+func (a *App) labelsForUser(ctx context.Context, userID string) ([]MailLabel, error) {
+	rows, err := a.db.QueryContext(ctx, `SELECT l.id,l.mailbox_id,l.name,l.color,COUNT(ml.message_id)
+		FROM mail_labels l
+		JOIN mailboxes mb ON mb.id=l.mailbox_id
+		LEFT JOIN message_labels ml ON ml.label_id=l.id
+		WHERE mb.user_id=? AND mb.status='active'
+		GROUP BY l.id,l.mailbox_id,l.name,l.color
+		ORDER BY lower(l.name)`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MailLabel{}
+	for rows.Next() {
+		var item MailLabel
+		if err := rows.Scan(&item.ID, &item.MailboxID, &item.Name, &item.Color, &item.MessageCount); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (a *App) labelsForMessage(ctx context.Context, messageID string) ([]MailLabel, error) {
 	rows, err := a.db.QueryContext(ctx, `SELECT l.id,l.mailbox_id,l.name,l.color
 		FROM mail_labels l JOIN message_labels ml ON ml.label_id=l.id
@@ -2256,6 +2498,12 @@ func (a *App) ensureLabel(ctx context.Context, mailboxID, name, color string) (M
 func (a *App) labelBelongsToMailbox(ctx context.Context, labelID, mailboxID string) bool {
 	var count int
 	_ = a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM mail_labels WHERE id=? AND mailbox_id=?`, labelID, mailboxID).Scan(&count)
+	return count > 0
+}
+
+func (a *App) labelBelongsToUser(ctx context.Context, labelID, userID string) bool {
+	var count int
+	_ = a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM mail_labels l JOIN mailboxes mb ON mb.id=l.mailbox_id WHERE l.id=? AND mb.user_id=?`, labelID, userID).Scan(&count)
 	return count > 0
 }
 

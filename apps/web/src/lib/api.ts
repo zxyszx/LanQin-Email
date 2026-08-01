@@ -4,6 +4,44 @@ export * from "./api-types"
 const REQUEST_TIMEOUT_MS = 15_000
 const MAIL_DELIVERY_TIMEOUT_MS = 60_000
 
+export type MailSearchParams = {
+  q?: string
+  from?: string
+  to?: string
+  subject?: string
+  startDate?: string
+  endDate?: string
+  attachmentMode?: "all" | "with" | "without"
+  minSizeKb?: string
+  maxSizeKb?: string
+  readStatus?: "all" | "read" | "unread"
+  flagStatus?: "all" | "starred" | "unstarred"
+  hasAttachments?: boolean
+  unread?: boolean
+  starred?: boolean
+}
+
+function appendMailSearchParams(params: URLSearchParams, search: MailSearchParams | string) {
+  if (typeof search === "string") {
+    if (search) params.set("q", search)
+    return
+  }
+  if (search.q) params.set("q", search.q)
+  if (search.from) params.set("from", search.from)
+  if (search.to) params.set("to", search.to)
+  if (search.subject) params.set("subject", search.subject)
+  if (search.startDate) params.set("startDate", search.startDate)
+  if (search.endDate) params.set("endDate", search.endDate)
+  if (search.attachmentMode && search.attachmentMode !== "all") params.set("attachmentMode", search.attachmentMode)
+  else if (search.hasAttachments) params.set("hasAttachments", "1")
+  if (search.minSizeKb) params.set("minSizeKb", search.minSizeKb)
+  if (search.maxSizeKb) params.set("maxSizeKb", search.maxSizeKb)
+  if (search.readStatus && search.readStatus !== "all") params.set("readStatus", search.readStatus)
+  else if (search.unread) params.set("unread", "1")
+  if (search.flagStatus && search.flagStatus !== "all") params.set("flagStatus", search.flagStatus)
+  else if (search.starred) params.set("starred", "1")
+}
+
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const { timeoutMs, ...requestInit } = init
   const controller = new AbortController()
@@ -152,18 +190,21 @@ export const api = {
     return request<MailLabel>(`/api/mail/labels${query}`, { method: "POST", body: JSON.stringify({ name: payload.name, color: payload.color || "" }) })
   },
   deleteLabel: (id: string, mailboxId?: string) => request<{ labels: MailLabel[] }>(`/api/mail/labels/${id}${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`, { method: "DELETE" }),
-  messages: (folder: string, q = "", cursor = "", mailboxId?: string) => {
-    const params = new URLSearchParams({ folder, q, cursor })
+  messages: (folder: string, search: MailSearchParams | string = "", cursor = "", mailboxId?: string) => {
+    const params = new URLSearchParams({ folder, cursor })
+    appendMailSearchParams(params, search)
     if (mailboxId) params.set("mailboxId", mailboxId)
     return request<ListResponse<MailMessage>>(`/api/mail/messages?${params.toString()}`)
   },
-  labelMessages: (labelId: string, q = "", cursor = "", mailboxId?: string) => {
-    const params = new URLSearchParams({ labelId, q, cursor })
+  labelMessages: (labelId: string, search: MailSearchParams | string = "", cursor = "", mailboxId?: string) => {
+    const params = new URLSearchParams({ labelId, cursor })
+    appendMailSearchParams(params, search)
     if (mailboxId) params.set("mailboxId", mailboxId)
     return request<ListResponse<MailMessage>>(`/api/mail/messages?${params.toString()}`)
   },
-  starredMessages: (q = "", cursor = "", mailboxId?: string) => {
-    const params = new URLSearchParams({ q, cursor })
+  starredMessages: (search: MailSearchParams | string = "", cursor = "", mailboxId?: string) => {
+    const params = new URLSearchParams({ cursor })
+    appendMailSearchParams(params, search)
     if (mailboxId) params.set("mailboxId", mailboxId)
     return request<ListResponse<MailMessage>>(`/api/mail/starred?${params.toString()}`)
   },
@@ -198,6 +239,4 @@ export const api = {
   move: (id: string, folder: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) }),
   delete: (id: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}`, { method: "DELETE" }),
 }
-
-
 

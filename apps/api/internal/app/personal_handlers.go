@@ -623,7 +623,7 @@ func (a *App) handleMailStats(w http.ResponseWriter, r *http.Request) {
 	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
 	args := []any{user.ID}
 	where := `mb.user_id=?`
-	if mailboxID != "" {
+	if mailboxID != "" && !isAllMailboxID(mailboxID) {
 		if _, err := a.mailboxForCurrentUserWithID(r, mailboxID); err != nil {
 			respondError(w, http.StatusNotFound, "mailbox not found")
 			return
@@ -642,7 +642,7 @@ func (a *App) handleMailStats(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "failed to load attachment stats")
 		return
 	}
-	if mailboxID != "" {
+	if mailboxID != "" && !isAllMailboxID(mailboxID) {
 		var quotaMB int64
 		if err := a.db.QueryRowContext(r.Context(), `SELECT quota_mb FROM mailboxes WHERE id=? AND user_id=?`, mailboxID, user.ID).Scan(&quotaMB); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to load quota")

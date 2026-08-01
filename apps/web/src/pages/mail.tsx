@@ -11,9 +11,8 @@ import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
 import { useNavigate } from "react-router-dom"
-import type { ImperativePanelHandle } from "react-resizable-panels"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Bold, Calendar, Check, ChevronDown, ChevronsUpDown, Clock3, Code2, Copy, Ellipsis, Eraser, Eye, FileText, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, Moon, PanelLeftClose, PanelLeftOpen, Paperclip, Pencil, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, X } from "lucide-react"
-import { api, ExternalImapAccount, ExternalImapFolder, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, X } from "lucide-react"
+import { api, ExternalImapAccount, ExternalImapFolder, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
 import { useDisplayMode } from "@/lib/display-mode"
@@ -50,18 +49,18 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/hooks/use-toast"
 import { hasPermission } from "@/lib/permissions"
 
-const folderIcons: Record<string, React.ReactNode> = { inbox: <Inbox className="h-4 w-4" />, sent: <Send className="h-4 w-4" />, drafts: <FileText className="h-4 w-4" />, archive: <Archive className="h-4 w-4" />, spam: <Trash2 className="h-4 w-4" />, trash: <Trash2 className="h-4 w-4" /> }
+const folderIcons: Record<string, React.ReactNode> = { inbox: <Inbox className="h-4 w-4" />, sent: <Send className="h-4 w-4" />, drafts: <FileText className="h-4 w-4" />, archive: <Archive className="h-4 w-4" />, spam: <Ban className="h-4 w-4" />, trash: <Trash2 className="h-4 w-4" /> }
 const folderLabels: Record<string, string> = {
   Inbox: "收件箱",
   Sent: "已发送",
   Drafts: "草稿箱",
-  Archive: "归档",
+  Archive: "已归档",
   Spam: "垃圾邮件",
-  Trash: "回收站",
+  Trash: "已删除",
 }
 
 type ComposeDraft = { key: string; id?: string; mailboxId?: string; to?: string; cc?: string; bcc?: string; subject?: string; text?: string; html?: string; files?: File[]; isDraft?: boolean }
-type MailFilter = "all" | "unread" | "starred" | "attachments"
+type MailFilter = "all" | "unread" | "starred" | "attachments" | "recent7"
 type MailView = "folder" | "starred" | "label" | "scheduled" | "sendQueue" | "external"
 type MailListResponse = { items?: MailMessage[]; nextCursor?: string }
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
@@ -70,6 +69,9 @@ type ComposeSendIntent = { title: string; description: string; confirmText: stri
 type MessageContextMenuState = { message: MailMessage; x: number; y: number }
 type SidebarContextMenuState = { item: MailMenuItem; x: number; y: number }
 type FolderDropTarget = { key: string; edge: "before" | "after" | "end" }
+type AdvancedMailSearch = { from: string; to: string; subject: string; startDate: string; endDate: string; hasAttachments: boolean; unread: boolean; starred: boolean }
+type AdvancedMailSearchDraft = AdvancedMailSearch
+type AdvancedSearchChip = { key: keyof AdvancedMailSearch; label: string }
 type MailMenuItem =
   | { type: "starred"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
   | { type: "scheduled"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
@@ -77,11 +79,16 @@ type MailMenuItem =
   | { type: "folder"; key: string; folderId: string; folderName: string; label: string; icon: React.ReactNode; count: number; custom: boolean; order: number }
 
 const filterLabels: Record<MailFilter, string> = {
-  all: "全部邮件",
-  unread: "未读邮件",
-  starred: "星标邮件",
+  all: "全部",
+  unread: "未读",
+  starred: "已加旗标",
   attachments: "有附件",
+  recent7: "最近 7 天",
 }
+
+const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "", startDate: "", endDate: "", hasAttachments: false, unread: false, starred: false }
+const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
+const mailboxSelectionStorageVersion = "2"
 
 export function MailPage() {
   const qc = useQueryClient()
@@ -92,13 +99,19 @@ export function MailPage() {
   const [mailView, setMailView] = React.useState<MailView>("folder")
   const [selectedLabelId, setSelectedLabelId] = React.useState("")
   const [query, setQuery] = React.useState("")
+  const [advancedSearchOpen, setAdvancedSearchOpen] = React.useState(false)
+  const [advancedSearch, setAdvancedSearch] = React.useState<AdvancedMailSearch>(emptyAdvancedSearch)
+  const [advancedSearchDraft, setAdvancedSearchDraft] = React.useState<AdvancedMailSearchDraft>(emptyAdvancedSearchDraft)
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [compactSelectedIds, setCompactSelectedIds] = React.useState<string[]>([])
   const [composeOpen, setComposeOpen] = React.useState(false)
   const [composeDraft, setComposeDraft] = React.useState<ComposeDraft | undefined>()
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
+  const sidebarCollapsed = false
   const [mailFilter, setMailFilter] = React.useState<MailFilter>("all")
-  const [selectedMailboxId, setSelectedMailboxId] = React.useState(() => localStorage.getItem("lanqin:selected-mailbox") || "")
+  const [selectedMailboxId, setSelectedMailboxId] = React.useState(() => {
+    if (localStorage.getItem("lanqin:selected-mailbox-version") !== mailboxSelectionStorageVersion) return "all"
+    return localStorage.getItem("lanqin:selected-mailbox") || "all"
+  })
   const [selectedExternalAccountId, setSelectedExternalAccountId] = React.useState("")
   const [expandedExternalAccountIds, setExpandedExternalAccountIds] = React.useState<string[]>([])
   const [externalFolder, setExternalFolder] = React.useState("INBOX")
@@ -127,7 +140,6 @@ export function MailPage() {
   const [folderDialogOpen, setFolderDialogOpen] = React.useState(false)
   const [draggingFolderId, setDraggingFolderId] = React.useState("")
   const [folderDropTarget, setFolderDropTarget] = React.useState<FolderDropTarget | null>(null)
-  const sidebarPanelRef = React.useRef<ImperativePanelHandle>(null)
   const themeMountedRef = React.useRef(false)
   const mailNotifyStateRef = React.useRef<Record<string, MailNotificationState>>({})
   const mailAudioContextRef = React.useRef<AudioContext | null>(null)
@@ -148,8 +160,14 @@ export function MailPage() {
   const externalMailAccounts = useQuery({ queryKey: ["mail-external-accounts"], queryFn: api.externalMailAccounts, enabled: canAccessMail && canReadMail && externalImapEnabled })
   const selectedExternalAccount = React.useMemo(() => externalImapEnabled ? externalMailAccounts.data?.items.find((item) => item.id === selectedExternalAccountId) : undefined, [externalImapEnabled, externalMailAccounts.data?.items, selectedExternalAccountId])
   const externalFolders = useQuery({ queryKey: ["mail-external-folders", selectedExternalAccountId], queryFn: () => api.externalFolders(selectedExternalAccountId), enabled: !!selectedExternalAccountId && canReadMail && externalImapEnabled })
-  const selectedMailbox = React.useMemo(() => mailboxList.data?.items.find((item) => item.id === selectedMailboxId), [mailboxList.data?.items, selectedMailboxId])
-  const activeMailboxId = selectedMailbox?.id || ""
+  const selectedMailbox = React.useMemo(() => {
+    const items = mailboxList.data?.items || []
+    if (selectedMailboxId === "all") return undefined
+    return items.find((item) => item.id === selectedMailboxId) || items[0]
+  }, [mailboxList.data?.items, selectedMailboxId])
+  const isAllMailboxSelected = selectedMailboxId === "all"
+  const activeMailboxId = selectedMailboxId === "all" ? "all" : selectedMailbox?.id || ""
+  const selectedComposeMailbox = selectedMailbox || (isAllMailboxSelected ? mailboxList.data?.items?.[0] : undefined)
   const hasMailboxes = (mailboxList.data?.items.length || 0) > 0
   const folders = useQuery({ queryKey: ["folders", activeMailboxId], queryFn: () => api.folders(activeMailboxId), enabled: !!activeMailboxId && canReadMail })
   const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && (canReadMail || canManageLabels) })
@@ -164,6 +182,12 @@ export function MailPage() {
   })
   const sendQueueAudit = useQuery({ queryKey: ["send-queue-audit", sendQueueAuditId], queryFn: () => api.sendQueueAudit(sendQueueAuditId), enabled: !!sendQueueAuditId && canViewSendQueue })
   const mailRefreshInterval = publicSettings.data?.mailAutoRefresh ? Math.max(publicSettings.data.mailRefreshMs || 30000, 5000) : false
+  const advancedSearchActive = hasAdvancedMailSearch(advancedSearch)
+  const advancedSearchChips = React.useMemo(() => buildAdvancedSearchChips(advancedSearch), [advancedSearch])
+  const mailSearchParams = React.useMemo<MailSearchParams>(() => ({
+    q: query.trim(),
+    ...advancedSearch,
+  }), [advancedSearch, query])
   React.useEffect(() => {
     if (externalImapEnabled) return
     setSelectedExternalAccountId("")
@@ -185,12 +209,12 @@ export function MailPage() {
     refetchIntervalInBackground: true,
   })
   const messages = useInfiniteQuery({
-    queryKey: ["messages", activeMailboxId, mailView, folder, selectedLabelId, query],
+    queryKey: ["messages", activeMailboxId, mailView, folder, selectedLabelId, mailSearchParams],
     queryFn: ({ pageParam }) => {
       const cursor = typeof pageParam === "string" ? pageParam : ""
-      if (mailView === "starred") return api.starredMessages(query, cursor, activeMailboxId)
-      if (mailView === "label") return api.labelMessages(selectedLabelId, query, cursor, activeMailboxId)
-      return api.messages(folder, query, cursor, activeMailboxId)
+      if (mailView === "starred") return api.starredMessages(mailSearchParams, cursor, activeMailboxId)
+      if (mailView === "label") return api.labelMessages(selectedLabelId, mailSearchParams, cursor, activeMailboxId)
+      return api.messages(folder, mailSearchParams, cursor, activeMailboxId)
     },
     initialPageParam: "",
     getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
@@ -444,14 +468,15 @@ export function MailPage() {
       localStorage.removeItem("lanqin:selected-mailbox")
       return
     }
-    if (!selectedMailboxId || !items.some((item) => item.id === selectedMailboxId)) {
-      setSelectedMailboxId(items[0].id)
+    if (!selectedMailboxId || (selectedMailboxId !== "all" && !items.some((item) => item.id === selectedMailboxId))) {
+      setSelectedMailboxId("all")
     }
   }, [mailboxList.isSuccess, mailboxList.data?.items, selectedMailboxId])
 
   React.useEffect(() => {
     if (selectedMailboxId) localStorage.setItem("lanqin:selected-mailbox", selectedMailboxId)
     else localStorage.removeItem("lanqin:selected-mailbox")
+    localStorage.setItem("lanqin:selected-mailbox-version", mailboxSelectionStorageVersion)
   }, [selectedMailboxId])
 
   React.useEffect(() => {
@@ -461,7 +486,7 @@ export function MailPage() {
 
   React.useEffect(() => {
     setCompactSelectedIds([])
-  }, [selectedMailboxId, mailView, folder, selectedLabelId, query, displayMode])
+  }, [selectedMailboxId, mailView, folder, selectedLabelId, query, advancedSearch, displayMode])
 
   React.useEffect(() => {
     applyTheme(darkMode, themeMountedRef.current)
@@ -572,12 +597,18 @@ export function MailPage() {
   const selected = detail.data
   const allMessages = (mailView === "external" ? externalMessages.data?.pages : messages.data?.pages)?.flatMap((page) => page.items || []) || []
   const visibleMessages = allMessages.filter((message) => {
+    if (!messageMatchesAdvancedSearch(message, advancedSearch)) return false
     if (mailFilter === "unread") return !message.isRead
     if (mailFilter === "starred") return message.isStarred
     if (mailFilter === "attachments") return message.hasAttachments
+    if (mailFilter === "recent7") {
+      const receivedAt = new Date(message.receivedAt).getTime()
+      return Number.isFinite(receivedAt) && receivedAt >= Date.now() - 7 * 24 * 60 * 60 * 1000
+    }
     return true
   })
   const unreadCount = allMessages.filter((message) => !message.isRead).length
+  const mailboxUnreadCount = (folders.data?.items || []).find((item) => item.name === "Inbox")?.unreadCount ?? unreadCount
   const starredCount = mailStats.data?.starredMessages ?? (mailView === "starred" ? allMessages.length : 0)
   const scheduledItems = scheduledSends.data?.items || []
   const scheduledDraftIds = new Set(scheduledItems.map((item) => item.draftId).filter((draftId): draftId is string => Boolean(draftId)))
@@ -590,6 +621,10 @@ export function MailPage() {
   const sendQueueCount = sendQueueItems.filter((item) => item.status === "failed" || item.status === "queued" || item.status === "sending").length
   const visibleSendQueueItems = sendQueueItems
   const mailMenuItems = buildMailMenuItems(folders.data?.items || [], starredCount, canScheduleMail ? scheduledCount : 0, canScheduleMail, canViewSendQueue ? sendQueueCount : 0, canViewSendQueue)
+  const primaryMailMenuItems = mailMenuItems.filter((item) => !isCustomMenuFolder(item))
+  const customMailMenuItems = mailMenuItems.filter(isCustomMenuFolder)
+  const canOrganizeCurrentMailbox = canOrganizeMail && !isAllMailboxSelected
+  const canManageCurrentMailboxLabels = canManageLabels && !isAllMailboxSelected
   const externalAccountItems = externalImapEnabled ? externalMailAccounts.data?.items || [] : []
   const externalFolderItems = externalImapEnabled ? externalFolders.data?.items || [] : []
   const labelItems = labels.data?.items || []
@@ -719,6 +754,10 @@ export function MailPage() {
     setSelectedLabelId("")
     setSelectedId(null)
     setMailFilter("all")
+    if (mailboxId === "all") {
+      setLabelEditMode(false)
+      setNewLabelEditing(false)
+    }
     setMobileSidebarOpen(false)
   }
   function openFolder(nextFolder: string) {
@@ -973,9 +1012,47 @@ export function MailPage() {
   function openSettings() {
     navigate("/profile")
   }
+  function toggleAdvancedSearch() {
+    setAdvancedSearchDraft(advancedSearch)
+    setAdvancedSearchOpen((open) => !open)
+  }
+  function updateAdvancedSearch(next: AdvancedMailSearch) {
+    setAdvancedSearch(next)
+    setAdvancedSearchDraft(next)
+    setSelectedId(null)
+    setCompactSelectedIds([])
+  }
+  function applyAdvancedSearch(draft: AdvancedMailSearchDraft) {
+    updateAdvancedSearch({
+      from: draft.from.trim(),
+      to: draft.to.trim(),
+      subject: draft.subject.trim(),
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+      hasAttachments: draft.hasAttachments,
+      unread: draft.unread,
+      starred: draft.starred,
+    })
+    setAdvancedSearchOpen(false)
+  }
+  function clearAdvancedSearch() {
+    updateAdvancedSearch(emptyAdvancedSearch)
+  }
+  function removeAdvancedSearchFilter(key: keyof AdvancedMailSearch) {
+    updateAdvancedSearch({ ...advancedSearch, [key]: emptyAdvancedSearch[key] })
+  }
+  function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return
+    const parsed = parseSmartSearchQuery(query)
+    if (!parsed.active) return
+    event.preventDefault()
+    setQuery(parsed.query)
+    updateAdvancedSearch({ ...advancedSearch, ...parsed.search })
+    setAdvancedSearchOpen(false)
+  }
   const sidebarContent = (
-    <Sidebar collapsible="none" className="h-full w-full border-r bg-sidebar">
-      <SidebarHeader className={cn("border-b py-3", sidebarCollapsed ? "px-2" : "px-3")}>
+    <Sidebar collapsible="none" className="h-full w-full border-r border-border bg-sidebar text-sidebar-foreground">
+      <SidebarHeader className={cn("pb-3 pt-4", sidebarCollapsed ? "px-2" : "px-3")}>
         <AccountHeader
           collapsed={sidebarCollapsed}
           name={me.data?.user.displayName || selectedMailbox?.address || "LanQin"}
@@ -990,40 +1067,37 @@ export function MailPage() {
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
+            selectedMailboxId={selectedMailboxId}
             selectedMailbox={selectedMailbox}
+            fallbackAddress={selectedMailbox?.address || me.data?.user.email || ""}
             onSelect={switchMailbox}
           />
-          {!sidebarCollapsed && (
-            <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0 rounded-md" onClick={copyCurrentMailbox} disabled={!selectedMailbox}>
+          {!sidebarCollapsed && !isAllMailboxSelected && (
+            <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0 rounded-md bg-background shadow-none hover:bg-background" onClick={copyCurrentMailbox} disabled={!selectedMailbox} aria-label="复制邮箱地址">
               <Copy className="h-4 w-4" />
             </Button>
           )}
         </div>
         {canSendMail && (
-          <Button className={cn("mt-2 h-10 w-full rounded-md text-sm", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedMailbox}>
+          <Button className={cn("mt-5 h-10 w-full rounded-md text-sm font-semibold shadow-none", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
             <PencilLine className="h-4 w-4" />
             {!sidebarCollapsed && <span>写邮件</span>}
           </Button>
         )}
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="px-1">
         <SidebarGroup>
           {!sidebarCollapsed && (
-            <div className="flex items-center justify-between px-2 py-1.5">
-              <SidebarGroupLabel className="m-0 p-0">邮件夹</SidebarGroupLabel>
-              {canOrganizeMail && (
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => setFolderDialogOpen(true)} disabled={!activeMailboxId}>
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
-              )}
+            <div className="flex items-center justify-between px-2 py-1">
+              <SidebarGroupLabel className="m-0 h-auto p-0 text-xs font-semibold text-muted-foreground">邮件</SidebarGroupLabel>
             </div>
           )}
           <SidebarGroupContent>
             <SidebarMenu>
-              {mailMenuItems.map((item) => (
+              {primaryMailMenuItems.map((item) => (
                 <SidebarMenuItem
                   key={item.key}
-                  draggable={item.type === "folder" && item.custom && canOrganizeMail && !sidebarCollapsed}
+                  draggable={item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed}
                   onDragStart={(event) => handleFolderDragStart(event, item)}
                   onDragOver={(event) => handleFolderDragOver(event, item)}
                   onDragLeave={() => { if (folderDropTarget?.key === item.key) setFolderDropTarget(null) }}
@@ -1034,22 +1108,22 @@ export function MailPage() {
                   <SidebarMenuButton
                     isActive={item.type === "starred" ? mailView === "starred" : item.type === "scheduled" ? mailView === "scheduled" : item.type === "sendQueue" ? mailView === "sendQueue" : mailView === "folder" && folder === item.folderName}
                     className={cn(
+                      "h-9 rounded-md px-2 text-sm font-normal",
                       sidebarCollapsed && "justify-center px-0",
-                      item.type === "folder" && item.custom && canOrganizeMail && !sidebarCollapsed && "cursor-grab active:cursor-grabbing",
+                      item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed && "cursor-grab active:cursor-grabbing",
                       item.type === "folder" && item.custom && draggingFolderId === item.folderId && "opacity-50",
                       folderDropTarget?.key === item.key && "bg-accent/60",
                       folderDropTarget?.key === item.key && folderDropTarget.edge === "before" && "border-t-2 border-t-primary",
                       folderDropTarget?.key === item.key && folderDropTarget.edge === "after" && "border-b-2 border-b-primary"
                     )}
                     onClick={() => activateSidebarItem(item)}
-                  >
-                    {item.icon}
-                    {!sidebarCollapsed && <span>{item.label}</span>}
-                    {!sidebarCollapsed && item.count > 0 && <Badge variant="secondary" className="ml-auto">{item.count}</Badge>}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                    >
+                      {item.icon}
+                      {!sidebarCollapsed && <span>{item.label}</span>}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
               ))}
-              {!sidebarCollapsed && canOrganizeMail && (
+              {!sidebarCollapsed && canOrganizeCurrentMailbox && customMailMenuItems.length === 0 && (
                 <div
                   className={cn("mx-2 h-4 rounded-sm border border-dashed border-transparent", folderDropTarget?.edge === "end" && "border-primary bg-accent/60")}
                   onDragOver={(event) => {
@@ -1113,18 +1187,77 @@ export function MailPage() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>}
-        {(canReadMail || canManageLabels) && <SidebarGroup>
+        {(customMailMenuItems.length > 0 || canOrganizeMail) && <SidebarGroup>
           {!sidebarCollapsed && (
-            <div className="flex items-center justify-between px-2 py-1.5">
-              <SidebarGroupLabel className="m-0 p-0">标签</SidebarGroupLabel>
-              {canManageLabels && (
-                <div className="flex items-center gap-0.5">
-                <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => { setNewLabelEditing(true); setLabelEditMode(true) }}>
+            <div className="flex items-center justify-between px-2 py-1">
+              <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />文件夹</SidebarGroupLabel>
+              {canOrganizeCurrentMailbox && (
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setFolderDialogOpen(true)} disabled={!selectedMailbox}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
-                {labelItems.length > 0 && (
-                  <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => setLabelEditMode((v) => !v)}>
-                    {labelEditMode ? <Check className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
+              )}
+            </div>
+          )}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {customMailMenuItems.map((item) => (
+                <SidebarMenuItem
+                  key={item.key}
+                  draggable={item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed}
+                  onDragStart={(event) => handleFolderDragStart(event, item)}
+                  onDragOver={(event) => handleFolderDragOver(event, item)}
+                  onDragLeave={() => { if (folderDropTarget?.key === item.key) setFolderDropTarget(null) }}
+                  onDrop={(event) => handleFolderDrop(event, item)}
+                  onDragEnd={clearFolderDragState}
+                  onContextMenu={(event) => openSidebarContextMenu(event, item)}
+                >
+                  <SidebarMenuButton
+                    isActive={mailView === "folder" && folder === item.folderName}
+                    className={cn(
+                      "h-9 rounded-md px-2 text-sm font-normal",
+                      sidebarCollapsed && "justify-center px-0",
+                      item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed && "cursor-grab active:cursor-grabbing",
+                      draggingFolderId === item.folderId && "opacity-50",
+                      folderDropTarget?.key === item.key && "bg-accent/60",
+                      folderDropTarget?.key === item.key && folderDropTarget.edge === "before" && "border-t-2 border-t-primary",
+                      folderDropTarget?.key === item.key && folderDropTarget.edge === "after" && "border-b-2 border-b-primary"
+                    )}
+                    onClick={() => activateSidebarItem(item)}
+                  >
+                    {item.icon}
+                    {!sidebarCollapsed && <span>{item.label}</span>}
+                    {!sidebarCollapsed && item.count > 0 && <Badge variant="secondary" className="ml-auto h-5 min-w-5 rounded-full px-1.5 text-xs">{item.count}</Badge>}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+              {!sidebarCollapsed && canOrganizeCurrentMailbox && (
+                <div
+                  className={cn("mx-2 h-4 rounded-sm border border-dashed border-transparent", folderDropTarget?.edge === "end" && "border-primary bg-accent/60")}
+                  onDragOver={(event) => {
+                    if (!draggingFolderId) return
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = "move"
+                    setFolderDropTarget({ key: "__end__", edge: "end" })
+                  }}
+                  onDragLeave={() => { if (folderDropTarget?.edge === "end") setFolderDropTarget(null) }}
+                  onDrop={handleFolderDropEnd}
+                />
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>}
+        {(canReadMail || canManageLabels) && <SidebarGroup>
+          {!sidebarCollapsed && (
+            <div className="flex items-center justify-between px-2 py-1">
+              <SidebarGroupLabel className="m-0 h-auto gap-1 p-0 text-xs font-semibold text-muted-foreground"><ChevronDown className="h-3 w-3" />标签</SidebarGroupLabel>
+              {canManageCurrentMailboxLabels && (
+                <div className="flex items-center gap-0.5">
+                <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => { setNewLabelEditing(true); setLabelEditMode(true) }}>
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+                {labelEditMode && (
+                  <Button type="button" variant="ghost" size="icon" className="h-5 w-5 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setLabelEditMode((v) => !v)}>
+                    <Check className="h-3 w-3" />
                   </Button>
                 )}
                 </div>
@@ -1134,26 +1267,26 @@ export function MailPage() {
           <SidebarGroupContent>
             <SidebarMenu>
               {canReadMail && labelItems.map((label) => {
-                const colors = generateLabelColor(label.name)
+                const dotColor = labelDotColor(label)
                 return (
                   <SidebarMenuItem key={label.id}>
                     <SidebarMenuButton
                       isActive={!labelEditMode && mailView === "label" && selectedLabelId === label.id}
-                      className={cn(sidebarCollapsed && "justify-center px-0")}
+                      className={cn("h-9 rounded-md px-2 text-sm font-normal", sidebarCollapsed && "justify-center px-0")}
                       onClick={() => { if (!labelEditMode) openLabel(label.id) }}
                     >
                       {sidebarCollapsed ? (
-                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.backgroundColor }} />
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: dotColor }} />
                       ) : (
-                        <Badge variant="outline" className="gap-1.5 rounded-md font-normal">
-                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colors.backgroundColor }} />
-                          {label.name}
-                        </Badge>
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
+                          <span className="truncate">{label.name}</span>
+                        </span>
                       )}
                       {!sidebarCollapsed && !labelEditMode && !!label.messageCount && (
                         <span className="ml-auto text-[11px] text-muted-foreground">{label.messageCount}</span>
                       )}
-                      {!sidebarCollapsed && labelEditMode && canManageLabels && (
+                      {!sidebarCollapsed && labelEditMode && canManageCurrentMailboxLabels && (
                         <button
                           type="button"
                           className="ml-auto flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
@@ -1169,7 +1302,7 @@ export function MailPage() {
                 )
               })}
               {canReadMail && !sidebarCollapsed && !labels.isLoading && labelItems.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">暂无标签</div>}
-              {canManageLabels && labelEditMode && newLabelEditing && (
+              {canManageCurrentMailboxLabels && labelEditMode && newLabelEditing && (
                 <SidebarMenuItem>
                   <NewLabelButton collapsed={sidebarCollapsed} pending={createLabel.isPending} onCreate={(name) => { createLabel.mutate(name); setNewLabelEditing(false) }} editing={newLabelEditing} onEditingChange={setNewLabelEditing} />
                 </SidebarMenuItem>
@@ -1179,25 +1312,8 @@ export function MailPage() {
           </SidebarGroupContent>
         </SidebarGroup>}
       </SidebarContent>
-      {!isMobile && (
-        <div className={cn("mt-auto border-t p-2", sidebarCollapsed ? "flex justify-center" : "")}>
-          <Button type="button" variant="ghost" size={sidebarCollapsed ? "icon" : "sm"} className={cn(!sidebarCollapsed && "w-full justify-start")} onClick={toggleSidebar}>
-            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            {!sidebarCollapsed && <span>收起侧栏</span>}
-          </Button>
-        </div>
-      )}
     </Sidebar>
   )
-  function toggleSidebar() {
-    if (sidebarCollapsed) {
-      sidebarPanelRef.current?.expand(14)
-      setSidebarCollapsed(false)
-    } else {
-      sidebarPanelRef.current?.collapse()
-      setSidebarCollapsed(true)
-    }
-  }
 
   const contentView = !canAccessMail ? (
     <PermissionEmptyState title="无邮箱前台权限" description="当前账号未开启邮箱前台访问权限。" onOpenSettings={openSettings} />
@@ -1285,23 +1401,79 @@ export function MailPage() {
       language={language}
     />
   ) : (
-    <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
-      <ResizablePanel defaultSize={32} minSize={24} maxSize={44}>
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="flex h-14 shrink-0 items-center justify-between border-b px-5">
+    <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1 bg-background">
+      <ResizablePanel defaultSize={23} minSize={18} maxSize={30}>
+        <div className="flex h-full min-h-0 flex-col bg-background">
+          <div className="shrink-0 border-b px-4 pb-3 pt-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="搜索发件人、主题、内容..." className="h-10 rounded-lg bg-background pl-9 text-sm shadow-none" />
+            </div>
+            <div className="relative mt-2">
+              <Button type="button" variant={advancedSearchActive || advancedSearchOpen ? "secondary" : "outline"} size="sm" className="h-7 rounded-md px-2 text-xs font-normal shadow-none" onClick={toggleAdvancedSearch}>
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                高级搜索
+              </Button>
+              {advancedSearchOpen && (
+                <AdvancedSearchPanel
+                  draft={advancedSearchDraft}
+                  onDraftChange={setAdvancedSearchDraft}
+                  onSubmit={applyAdvancedSearch}
+                  onClear={clearAdvancedSearch}
+                />
+              )}
+            </div>
+            {advancedSearchChips.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {advancedSearchChips.map((chip) => (
+                  <SearchFilterChip key={chip.key} label={chip.label} onRemove={() => removeAdvancedSearchFilter(chip.key)} />
+                ))}
+                <Button type="button" variant="ghost" className="h-6 rounded-full px-2 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={clearAdvancedSearch}>清空</Button>
+              </div>
+            )}
+            <div className="mt-3 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground">
+              <span className="shrink-0">快捷筛选</span>
+              {(["attachments", "starred", "recent7"] as MailFilter[]).map((value) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={mailFilter === value ? "secondary" : "outline"}
+                  size="sm"
+                  className={cn("h-7 shrink-0 rounded-full px-3 text-xs font-normal shadow-none", mailFilter === value && "bg-accent text-accent-foreground")}
+                  onClick={() => setMailFilter(mailFilter === value ? "all" : value)}
+                >
+                  {filterLabels[value]}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b px-4">
             <div className="flex min-w-0 items-center gap-3">
-              <Checkbox aria-label="选择当前页邮件" checked={compactAllSelected ? true : compactSomeSelected ? "indeterminate" : false} onCheckedChange={(value) => toggleCompactSelectAll(value === true)} />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-sm font-semibold">{mailView === "label" && selectedLabel && <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: generateLabelColor(selectedLabel.name).backgroundColor }} />{selectedLabel.name}</Badge>}{mailView !== "label" && viewTitle}</div>
-                <div className="text-xs text-muted-foreground">{selectedCountOnPage > 0 ? `已选 ${selectedCountOnPage} 封` : `${visibleMessages.length} / ${allMessages.length} 封邮件`}</div>
+              <div className="flex items-center gap-1">
+                <Checkbox aria-label="选择当前页邮件" checked={compactAllSelected ? true : compactSomeSelected ? "indeterminate" : false} onCheckedChange={(value) => toggleCompactSelectAll(value === true)} />
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex min-w-0 items-center gap-3">
+                <h1 className="shrink-0 text-2xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
+                <div className="flex items-center gap-1.5">
+                  <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("h-8 w-8 text-muted-foreground hover:bg-transparent hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
+                    <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
+                  </Button>
+                  {canOrganizeMail && <Button size="icon" variant="ghost" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)} className="h-8 w-8 text-muted-foreground hover:bg-transparent hover:text-foreground" title="全部已读"><Download className="h-4 w-4" /></Button>}
+                  <Button size="icon" variant="ghost" disabled className="h-8 w-8 text-muted-foreground hover:bg-transparent" title="导入"><Upload className="h-4 w-4" /></Button>
+                </div>
               </div>
             </div>
-            {selectedCountOnPage > 0 && canOrganizeMail && <BulkActionMenu pending={bulkPending} onAction={runBulkAction} />}
+            <div className="flex shrink-0 items-center gap-2">
+              {selectedCountOnPage > 0 && canOrganizeMail && <BulkActionMenu pending={bulkPending} onAction={runBulkAction} />}
+              <Button type="button" variant={mailFilter === "all" ? "secondary" : "outline"} size="sm" className="h-9 rounded-md px-4 text-sm font-normal shadow-none" onClick={() => setMailFilter("all")}>全部</Button>
+              <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-9 rounded-md px-4 text-sm font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
+            </div>
           </div>
           <ScrollArea className="min-h-0 flex-1">
             {(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && <MessageSkeleton />}
             {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} canOrganize={canOrganizeMail} />)}
-            {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && visibleMessages.length === 0 && <div className="p-8 text-center text-sm text-muted-foreground">{emptyMessage}</div>}
+            {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
             {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && hasMoreMessages && (
               <div className="border-b p-4 text-center">
                 <Button variant="outline" size="sm" disabled={!canLoadMore} onClick={() => mailView === "external" ? externalMessages.fetchNextPage() : messages.fetchNextPage()}>
@@ -1312,11 +1484,18 @@ export function MailPage() {
           </ScrollArea>
         </div>
       </ResizablePanel>
-      <ResizableHandle withHandle />
+      <ResizableHandle />
 
-      <ResizablePanel defaultSize={68} minSize={44}>
-        <section className="h-full min-h-0">
-          {!selectedId && <div className="grid h-full place-items-center text-muted-foreground">选择一封邮件阅读</div>}
+      <ResizablePanel defaultSize={77} minSize={60}>
+        <section className="h-full min-h-0 bg-background">
+          {!selectedId && (
+            <div className="grid h-full place-items-center text-muted-foreground">
+              <div className="flex flex-col items-center gap-4 text-center">
+                <Mail className="h-12 w-12 stroke-[1.6] text-muted-foreground/60" />
+                <div className="text-base">选择一封邮件以查看详情</div>
+              </div>
+            </div>
+          )}
           {detail.isLoading && <div className="space-y-4 p-6"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-1/3" /><Separator /><Skeleton className="h-40 w-full" /></div>}
           {selected && <div className="flex h-full min-h-0 flex-col">
             <div className="border-b p-5">
@@ -1371,7 +1550,7 @@ export function MailPage() {
                   <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
                 </Button>
                 <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: generateLabelColor(selectedLabel.name).backgroundColor }} />{selectedLabel.name}</Badge> : viewTitle}</div>
-                {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
+                  {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
                 <div className="relative basis-full">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={mailView === "external" ? "搜索远端邮件" : mailView === "sendQueue" ? "搜索发送队列" : mailView === "scheduled" ? "搜索待发送" : "搜索邮件"} className="h-10 pl-9" />
@@ -1382,45 +1561,12 @@ export function MailPage() {
           </div>
         ) : (
           <ResizablePanelGroup direction="horizontal" className="h-full min-h-0 w-full">
-            <ResizablePanel ref={sidebarPanelRef} collapsible collapsedSize={4} defaultSize={15} minSize={11} maxSize={24} onCollapse={() => setSidebarCollapsed(true)} onExpand={() => setSidebarCollapsed(false)}>
+            <ResizablePanel defaultSize={13} minSize={10} maxSize={18}>
               {sidebarContent}
             </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={85} minSize={60}>
+            <ResizableHandle />
+            <ResizablePanel defaultSize={87} minSize={60}>
               <section className="flex h-full min-h-0 flex-col">
-                <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b px-5">
-                  <div className="flex items-center gap-2">
-                    <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("transition-all", (refreshing || autoRefreshing) && "bg-primary/5 text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
-                      <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
-                    </Button>
-                    {(publicSettings.data?.mailAutoRefresh || autoRefreshing) && (
-                      <div className="hidden min-w-[118px] text-xs text-muted-foreground sm:block">
-                        {autoRefreshing ? "自动刷新中..." : lastAutoRefreshAt ? `已刷新 ${lastAutoRefreshAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "自动刷新已开启"}
-                      </div>
-                    )}
-                    {mailView !== "scheduled" && mailView !== "sendQueue" && mailView !== "external" && (
-                      <>
-                        {canOrganizeMail && <Button variant="outline" size="sm" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)}><MailCheck className="h-4 w-4" />全部已读</Button>}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm"><SlidersHorizontal className="h-4 w-4" />{filterLabels[mailFilter]}</Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(Object.keys(filterLabels) as MailFilter[]).map((value) => (
-                              <DropdownMenuItem key={value} onSelect={() => setMailFilter(value)}>
-                                {filterLabels[value]}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </>
-                    )}
-                  </div>
-                  <div className="relative w-full max-w-md">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={mailView === "external" ? "搜索远端邮件" : mailView === "sendQueue" ? "搜索发送队列" : mailView === "scheduled" ? "搜索待发送" : "搜索邮件"} className="pl-9" />
-                  </div>
-                </header>
                 {contentView}
               </section>
             </ResizablePanel>
@@ -1428,7 +1574,7 @@ export function MailPage() {
         )}
       </SidebarProvider>
 
-      <ComposeDialog mailbox={selectedMailbox} open={composeOpen} draft={composeDraft} limits={user?.limits} canSend={canSendMail} canManageDrafts={canManageDrafts} canSchedule={canScheduleMail} canManageSignatures={canManageSignatures} onOpenChange={(open) => { setComposeOpen(open); if (!open) setComposeDraft(undefined) }} onSent={() => { setComposeOpen(false); setComposeDraft(undefined); qc.invalidateQueries({ queryKey: ["messages"] }); qc.invalidateQueries({ queryKey: ["folders"] }); qc.invalidateQueries({ queryKey: ["mail-stats"] }); qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["scheduled-sends"] }); qc.invalidateQueries({ queryKey: ["send-queue"] }) }} />
+      <ComposeDialog mailbox={selectedComposeMailbox} open={composeOpen} draft={composeDraft} limits={user?.limits} canSend={canSendMail} canManageDrafts={canManageDrafts} canSchedule={canScheduleMail} canManageSignatures={canManageSignatures} onOpenChange={(open) => { setComposeOpen(open); if (!open) setComposeDraft(undefined) }} onSent={() => { setComposeOpen(false); setComposeDraft(undefined); qc.invalidateQueries({ queryKey: ["messages"] }); qc.invalidateQueries({ queryKey: ["folders"] }); qc.invalidateQueries({ queryKey: ["mail-stats"] }); qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["scheduled-sends"] }); qc.invalidateQueries({ queryKey: ["send-queue"] }) }} />
       <SendQueueAuditDialog
         open={!!sendQueueAuditId}
         loading={sendQueueAudit.isLoading}
@@ -1512,17 +1658,17 @@ function buildMailMenuItems(folders: MailFolder[], starredCount: number, schedul
     folderId: item.id,
     folderName: item.name,
     label: folderLabels[item.name] || item.name,
-    icon: folderIcons[item.role] || <Inbox className="h-4 w-4" />,
+    icon: isCustomMailFolder(item) ? <Folder className="h-4 w-4" /> : folderIcons[item.role] || <Inbox className="h-4 w-4" />,
     count: item.name === "Drafts" ? item.totalCount : item.unreadCount,
     custom: isCustomMailFolder(item),
     order: isCustomMailFolder(item) ? item.sortOrder || 100000 : menuAnchorOrder(item.name),
   }))
   const starredItem: MailMenuItem = { type: "starred", key: "starred", label: "星标邮件", icon: <Star className="h-4 w-4" />, count: starredCount, order: 2000 }
-  const scheduledItem: MailMenuItem = { type: "scheduled", key: "scheduled", label: "待发送", icon: <Clock3 className="h-4 w-4" />, count: scheduledCount, order: 3000 }
-  const sendQueueItem: MailMenuItem = { type: "sendQueue", key: "send-queue", label: "发送队列", icon: <History className="h-4 w-4" />, count: sendQueueCount, order: 4000 }
+  const scheduledItem: MailMenuItem = { type: "scheduled", key: "scheduled", label: "稍后提醒", icon: <Clock3 className="h-4 w-4" />, count: scheduledCount, order: 6000 }
+  const sendQueueItem: MailMenuItem = { type: "sendQueue", key: "send-queue", label: "发送队列", icon: <History className="h-4 w-4" />, count: sendQueueCount, order: 9000 }
   const specialItems: MailMenuItem[] = [starredItem]
   if (includeScheduled) specialItems.push(scheduledItem)
-  if (includeSendQueue) specialItems.push(sendQueueItem)
+  if (includeSendQueue && sendQueueCount > 0) specialItems.push(sendQueueItem)
   return [...folderItems, ...specialItems].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
 }
 
@@ -1570,16 +1716,168 @@ function isCustomMenuFolder(item: MailMenuItem): item is Extract<MailMenuItem, {
   return item.type === "folder" && item.custom
 }
 
+function hasAdvancedMailSearch(search: AdvancedMailSearch) {
+  return Boolean(
+    search.from.trim() ||
+    search.to.trim() ||
+    search.subject.trim() ||
+    search.startDate ||
+    search.endDate ||
+    search.hasAttachments ||
+    search.unread ||
+    search.starred
+  )
+}
+
+function messageMatchesAdvancedSearch(message: MailMessage, search: AdvancedMailSearch) {
+  if (!hasAdvancedMailSearch(search)) return true
+  if (search.from.trim() && !searchTextMatches([message.from, message.fromName || ""], search.from)) return false
+  if (search.to.trim() && !searchTextMatches([...(message.to || []), ...(message.cc || []), ...(message.bcc || []), message.recipientAddress || "", message.mailboxAddress || ""], search.to)) return false
+  if (search.subject.trim() && !searchTextMatches([message.subject || ""], search.subject)) return false
+  if (search.hasAttachments && !message.hasAttachments) return false
+  if (search.unread && message.isRead) return false
+  if (search.starred && !message.isStarred) return false
+  const receivedAt = new Date(message.receivedAt).getTime()
+  if (search.startDate) {
+    const start = new Date(`${search.startDate}T00:00:00`).getTime()
+    if (Number.isFinite(start) && (!Number.isFinite(receivedAt) || receivedAt < start)) return false
+  }
+  if (search.endDate) {
+    const end = new Date(`${search.endDate}T23:59:59.999`).getTime()
+    if (Number.isFinite(end) && (!Number.isFinite(receivedAt) || receivedAt > end)) return false
+  }
+  return true
+}
+
+function buildAdvancedSearchChips(search: AdvancedMailSearch): AdvancedSearchChip[] {
+  const chips: AdvancedSearchChip[] = []
+  if (search.from.trim()) chips.push({ key: "from", label: `发件人: ${search.from.trim()}` })
+  if (search.to.trim()) chips.push({ key: "to", label: `收件人: ${search.to.trim()}` })
+  if (search.subject.trim()) chips.push({ key: "subject", label: `主题: ${search.subject.trim()}` })
+  if (search.startDate) chips.push({ key: "startDate", label: `开始: ${search.startDate}` })
+  if (search.endDate) chips.push({ key: "endDate", label: `结束: ${search.endDate}` })
+  if (search.hasAttachments) chips.push({ key: "hasAttachments", label: "有附件" })
+  if (search.unread) chips.push({ key: "unread", label: "未读" })
+  if (search.starred) chips.push({ key: "starred", label: "星标" })
+  return chips
+}
+
+function parseSmartSearchQuery(raw: string): { active: boolean; query: string; search: Partial<AdvancedMailSearch> } {
+  const search: Partial<AdvancedMailSearch> = {}
+  let active = false
+  const query = raw.replace(/\b(from|to|subject|after|before|has|is):(?:"([^"]*)"|'([^']*)'|(\S+))/gi, (match, key: string, quoted: string, singleQuoted: string, bare: string) => {
+    const value = (quoted || singleQuoted || bare || "").trim()
+    const normalizedKey = key.toLowerCase()
+    const normalizedValue = value.toLowerCase()
+    if (!value) return match
+    if (normalizedKey === "from") search.from = value
+    else if (normalizedKey === "to") search.to = value
+    else if (normalizedKey === "subject") search.subject = value
+    else if (normalizedKey === "after" && isDateInputValue(value)) search.startDate = value
+    else if (normalizedKey === "before" && isDateInputValue(value)) search.endDate = value
+    else if (normalizedKey === "has" && ["attachment", "attachments", "file", "files"].includes(normalizedValue)) search.hasAttachments = true
+    else if (normalizedKey === "is" && ["unread", "starred"].includes(normalizedValue)) {
+      if (normalizedValue === "unread") search.unread = true
+      if (normalizedValue === "starred") search.starred = true
+    } else {
+      return match
+    }
+    active = true
+    return " "
+  }).replace(/\s+/g, " ").trim()
+  return { active, query, search }
+}
+
+function isDateInputValue(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+function searchTextMatches(values: string[], needle: string) {
+  const normalized = needle.trim().toLowerCase()
+  if (!normalized) return true
+  return values.some((value) => value.toLowerCase().includes(normalized))
+}
+
 function menuAnchorOrder(name: string) {
   switch (name) {
     case "Inbox": return 1000
-    case "Sent": return 5000
-    case "Drafts": return 6000
-    case "Archive": return 7000
+    case "Drafts": return 3000
+    case "Sent": return 4000
+    case "Archive": return 5000
+    case "Trash": return 7000
     case "Spam": return 8000
-    case "Trash": return 9000
     default: return 100000
   }
+}
+
+function AdvancedSearchPanel({ draft, onDraftChange, onSubmit, onClear }: { draft: AdvancedMailSearchDraft; onDraftChange: (draft: AdvancedMailSearchDraft) => void; onSubmit: (draft: AdvancedMailSearchDraft) => void; onClear: () => void }) {
+  const update = <K extends keyof AdvancedMailSearchDraft>(key: K, value: AdvancedMailSearchDraft[K]) => onDraftChange({ ...draft, [key]: value })
+  return (
+    <form
+      className="absolute left-0 top-full z-50 mt-2 w-full rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit(draft)
+      }}
+    >
+      <div className="grid grid-cols-2 gap-x-2 gap-y-3">
+        <AdvancedSearchField label="发件人">
+          <Input value={draft.from} onChange={(event) => update("from", event.target.value)} placeholder="邮箱或名称" className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
+        </AdvancedSearchField>
+        <AdvancedSearchField label="收件人">
+          <Input value={draft.to} onChange={(event) => update("to", event.target.value)} placeholder="邮箱地址" className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
+        </AdvancedSearchField>
+        <AdvancedSearchField label="主题" className="col-span-2">
+          <Input value={draft.subject} onChange={(event) => update("subject", event.target.value)} placeholder="主题关键词" className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
+        </AdvancedSearchField>
+        <AdvancedSearchField label="开始日期">
+          <Input type="date" value={draft.startDate} onChange={(event) => update("startDate", event.target.value)} className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
+        </AdvancedSearchField>
+        <AdvancedSearchField label="结束日期">
+          <Input type="date" value={draft.endDate} onChange={(event) => update("endDate", event.target.value)} className="h-8 rounded-md bg-background px-2.5 text-[13px] shadow-none" />
+        </AdvancedSearchField>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <AdvancedSearchToggle checked={draft.hasAttachments} onClick={() => update("hasAttachments", !draft.hasAttachments)}>有附件</AdvancedSearchToggle>
+        <AdvancedSearchToggle checked={draft.unread} onClick={() => update("unread", !draft.unread)}>未读</AdvancedSearchToggle>
+        <AdvancedSearchToggle checked={draft.starred} onClick={() => update("starred", !draft.starred)}>星标</AdvancedSearchToggle>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+        <Button type="button" variant="ghost" className="h-8 px-2 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onClear}>清空条件</Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button type="submit" className="h-8 rounded-md px-3 text-xs font-medium shadow-none">应用</Button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
+function AdvancedSearchField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <label className={cn("grid gap-1.5 text-xs font-normal text-muted-foreground", className)}>
+      <span className="leading-none">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function AdvancedSearchToggle({ checked, onClick, children }: { checked: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <Button type="button" variant={checked ? "secondary" : "outline"} className={cn("h-7 rounded-full px-3 text-xs font-normal shadow-none", checked && "bg-accent text-accent-foreground")} onClick={onClick}>
+      {children}
+    </Button>
+  )
+}
+
+function SearchFilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex h-6 max-w-full items-center gap-1 rounded-full border bg-accent px-2 text-xs text-accent-foreground">
+      <span className="truncate">{label}</span>
+      <button type="button" className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} aria-label={`移除筛选 ${label}`}>
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  )
 }
 
 function FolderSkeleton() { return <div className="space-y-2 p-2"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-4/5" /><Skeleton className="h-8 w-3/4" /></div> }
@@ -1592,7 +1890,7 @@ function getEmptyMessage(mailView: MailView, folder: string, total: number) {
   if (total > 0) return "当前筛选条件下没有邮件"
   if (mailView === "starred") return "暂无星标邮件"
   if (mailView === "label") return "当前标签没有邮件"
-  if (folder === "Inbox") return "收件箱暂时为空"
+  if (folder === "Inbox") return "暂无邮件"
   if (folder === "Drafts") return "还没有草稿"
   if (folder === "Sent") return "还没有已发送邮件"
   if (folder === "Trash") return "回收站是空的"
@@ -2682,8 +2980,8 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   if (collapsed) {
     return (
       <div className="flex justify-center">
-        <Avatar className="size-8 rounded-full">
-          <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
+        <Avatar className="size-[32px] rounded-full">
+          <AvatarFallback className="bg-primary text-[13px] font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
         </Avatar>
       </div>
     )
@@ -2691,20 +2989,20 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
-        <Avatar className="size-8 rounded-full">
-          <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
+        <Avatar className="size-[32px] rounded-full">
+          <AvatarFallback className="bg-primary text-[13px] font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 text-sm">
-          <div className="truncate text-sm font-semibold leading-5">{displayName}</div>
+          <div className="truncate text-sm font-semibold leading-5 text-foreground">{displayName}</div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground" onClick={onToggleTheme}>
+        <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme}>
           {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground" aria-label="切换语言" title="切换语言">
+            <Button type="button" variant="ghost" size="icon" className="hidden size-8 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="切换语言" title="切换语言">
               <span className="text-sm font-medium leading-none">{currentLanguage.shortLabel}</span>
             </Button>
           </DropdownMenuTrigger>
@@ -2717,7 +3015,7 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground" onClick={onSettings}>
+        <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onSettings}>
           <Settings className="h-4 w-4" />
         </Button>
       </div>
@@ -2725,28 +3023,61 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   )
 }
 
-function MailboxSwitcher({ collapsed, mailboxes, selectedMailbox, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; selectedMailbox?: Mailbox; onSelect: (mailboxId: string) => void }) {
+function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMailbox, fallbackAddress, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; selectedMailboxId: string; selectedMailbox?: Mailbox; fallbackAddress?: string; onSelect: (mailboxId: string) => void }) {
+  const [mailboxQuery, setMailboxQuery] = React.useState("")
+  const isAllSelected = selectedMailboxId === "all"
+  const displayAddress = isAllSelected ? "全部邮箱" : selectedMailbox?.address || fallbackAddress || "选择邮箱"
+  const normalizedQuery = mailboxQuery.trim().toLowerCase()
+  const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
+  const filteredMailboxes = React.useMemo(() => {
+    if (!normalizedQuery) return mailboxes
+    return mailboxes.filter((mailbox) => {
+      const value = `${mailbox.address} ${mailbox.displayName || ""}`.toLowerCase()
+      return value.includes(normalizedQuery)
+    })
+  }, [mailboxes, normalizedQuery])
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => { if (!open) setMailboxQuery("") }}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className={cn("h-9 min-w-0 flex-1 justify-start gap-2 rounded-md bg-background px-2 text-left font-normal", collapsed && "w-8 flex-none justify-center px-0")}>
+        <Button variant="outline" className={cn("h-9 min-w-0 flex-1 justify-start gap-2 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
           <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
           {!collapsed && (
             <>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{selectedMailbox?.address || "选择邮箱"}</span>
-              <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{displayAddress}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
             </>
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align="start" className="w-[225px] p-1">
+        {mailboxes.length > 0 && (
+          <div className="px-1 pb-1">
+            <Input
+              autoFocus
+              value={mailboxQuery}
+              onChange={(event) => setMailboxQuery(event.target.value)}
+              onKeyDown={(event) => event.stopPropagation()}
+              placeholder="搜索邮箱..."
+              className="h-9 rounded-md bg-background px-2 text-sm shadow-none"
+            />
+          </div>
+        )}
         {mailboxes.length === 0 && <DropdownMenuItem disabled>没有可用邮箱</DropdownMenuItem>}
-        {mailboxes.map((mailbox) => (
-          <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)} className="gap-2">
-            <Check className={cn("h-4 w-4", selectedMailbox?.id === mailbox.id ? "opacity-100" : "opacity-0")} />
-            <span className="min-w-0 flex-1 truncate font-medium">{mailbox.address}</span>
+        {mailboxes.length > 0 && showAllMailboxOption && (
+          <DropdownMenuItem onSelect={() => onSelect("all")} className={cn("h-8 gap-2 rounded-sm px-2 text-sm font-normal", isAllSelected && "bg-accent text-accent-foreground")}>
+            <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">全部邮箱</span>
+          </DropdownMenuItem>
+        )}
+        {filteredMailboxes.map((mailbox) => (
+          <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)} className={cn("h-8 min-w-0 gap-2 rounded-sm px-2 text-sm font-normal", !isAllSelected && selectedMailbox?.id === mailbox.id && "bg-accent text-accent-foreground")}>
+            <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate" title={mailbox.address}>{mailbox.address}</span>
           </DropdownMenuItem>
         ))}
+        {mailboxes.length > 0 && !showAllMailboxOption && filteredMailboxes.length === 0 && (
+          <DropdownMenuItem disabled className="h-8 px-2 text-sm font-normal">没有匹配邮箱</DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -2970,7 +3301,7 @@ function MessageRow({
   const visibleLabels = (message.labels || []).slice(0, 2)
   const hiddenLabelCount = Math.max((message.labels?.length || 0) - visibleLabels.length, 0)
   const senderName = senderDisplayName(message)
-  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b p-4 transition-colors hover:bg-accent/50", active && "bg-accent", !message.isRead && "font-semibold")}>
+  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-4 py-3 transition-colors hover:bg-accent/60", active && "bg-accent", !message.isRead && "font-semibold")}>
     <div className="flex gap-3">
       <Checkbox
         aria-label="选择邮件"
@@ -2981,7 +3312,7 @@ function MessageRow({
       />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="min-w-0 truncate text-sm" title={senderTitle(message)}>{senderName}</div>
+          <div className="min-w-0 truncate text-sm font-medium" title={senderTitle(message)}>{senderName}</div>
           <div className="flex shrink-0 items-center gap-1">
             {canOrganize && <Button
               type="button"
@@ -2997,13 +3328,13 @@ function MessageRow({
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-sm">{message.subject}</span>
+          <span className="min-w-0 truncate text-sm text-foreground">{message.subject || "无主题"}</span>
           {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
           {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
           {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
           {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
         </div>
-        <div className="line-clamp-2 text-xs text-muted-foreground">{message.snippet}</div>
+        <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</div>
       </div>
     </div>
   </div>
@@ -3013,10 +3344,14 @@ function MailLabelBadge({ label }: { label: MailLabel }) {
   const colors = generateLabelColor(label.name)
   return (
     <Badge variant="outline" className="shrink-0 gap-1.5 rounded-md font-normal">
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colors.backgroundColor }} />
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: labelDotColor(label) || colors.backgroundColor }} />
       {label.name}
     </Badge>
   )
+}
+
+function labelDotColor(label: MailLabel) {
+  return label.color?.trim() || generateLabelColor(label.name).backgroundColor
 }
 
 function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts, canSchedule, canManageSignatures, onOpenChange, onSent }: { mailbox?: Mailbox; open: boolean; draft?: ComposeDraft; limits?: PermissionLimits; canSend: boolean; canManageDrafts: boolean; canSchedule: boolean; canManageSignatures: boolean; onOpenChange: (v: boolean) => void; onSent: () => void }) {
