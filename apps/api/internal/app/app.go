@@ -227,6 +227,26 @@ func (a *App) migrate(ctx context.Context) error {
 			updated_at TEXT NOT NULL,
 			UNIQUE(domain_id, local_part)
 		)`,
+		`CREATE TABLE IF NOT EXISTS forwarding_verified_emails (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			email TEXT NOT NULL,
+			verified INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(user_id, email)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_forwarding_verified_emails_user ON forwarding_verified_emails(user_id, email)`,
+		`CREATE TABLE IF NOT EXISTS account_forwarding_settings (
+			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			target_email TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS mailbox_forwarding_settings (
+			mailbox_id TEXT PRIMARY KEY REFERENCES mailboxes(id) ON DELETE CASCADE,
+			target_email TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS aliases (
 			id TEXT PRIMARY KEY,
 			domain_id TEXT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,

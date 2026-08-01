@@ -371,6 +371,7 @@ func (a *App) syncMaildirFile(ctx context.Context, mb maildirMailbox, folder mai
 	id, err := a.insertMessage(ctx, msg, attachments)
 	if err == nil && strings.EqualFold(folder.Name, "Inbox") {
 		a.applyInboundControls(ctx, id, mb.ID, msg.From, msg.Subject)
+		a.processInboundForwarding(ctx, id, mb.ID, raw)
 	}
 	return err == nil, err
 }

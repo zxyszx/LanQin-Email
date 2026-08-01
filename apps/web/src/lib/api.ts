@@ -1,4 +1,4 @@
-import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, Attachment, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken } from "./api-types"
+import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, Attachment, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken } from "./api-types"
 export * from "./api-types"
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -103,6 +103,11 @@ export const api = {
   cleanupMail: (payload: { mailboxId: string; target: "empty-trash" | "empty-spam" | "archive-read-inbox" }) => request<{ ok: boolean; affected: number }>("/api/me/cleanup", { method: "POST", body: JSON.stringify(payload) }),
   mailboxApplyOptions: () => request<MailboxApplyOptions>("/api/me/mailbox-apply-options"),
   applyMailbox: (payload: { domainId: string; localPart: string; displayName: string }) => request<Mailbox>("/api/me/mailboxes/apply", { method: "POST", body: JSON.stringify(payload) }),
+  forwardingSettings: () => request<ForwardingSettings>("/api/me/forwarding"),
+  addForwardingVerifiedEmail: (email: string) => request<ForwardingSettings>("/api/me/forwarding/verified-emails", { method: "POST", body: JSON.stringify({ email }) }),
+  deleteForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}`, { method: "DELETE" }),
+  updateAccountForwarding: (targetEmail: string) => request<ForwardingSettings>("/api/me/forwarding/account", { method: "POST", body: JSON.stringify({ targetEmail }) }),
+  updateMailboxForwarding: (mailboxId: string, targetEmail: string) => request<ForwardingSettings>(`/api/me/mailboxes/${mailboxId}/forwarding`, { method: "POST", body: JSON.stringify({ targetEmail }) }),
   externalImapAccounts: (mailboxId?: string) => request<ListResponse<ExternalImapAccount>>(`/api/me/external-imap-accounts${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
   createExternalImapAccount: (payload: ExternalImapAccountPayload) => request<ExternalImapAccount>("/api/me/external-imap-accounts", { method: "POST", body: JSON.stringify(payload) }),
   updateExternalImapAccount: (id: string, payload: ExternalImapAccountPayload) => request<ExternalImapAccount>(`/api/me/external-imap-accounts/${id}`, { method: "POST", body: JSON.stringify(payload) }),
@@ -239,4 +244,3 @@ export const api = {
   move: (id: string, folder: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) }),
   delete: (id: string) => request<{ ok: boolean }>(`/api/mail/messages/${id}`, { method: "DELETE" }),
 }
-

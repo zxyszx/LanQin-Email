@@ -1642,6 +1642,106 @@ func TestMailSendQueuesSMTPFailureForRetry(t *testing.T) {
 	}
 }
 
+func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	host, port, received := startCapturingSMTP(t, 2)
+	a.cfg.SMTPHost = host
+	a.cfg.SMTPPort = port
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("login code=%d body=%v", code, login)
+	}
+	_, mb := defaultAdminUserAndMailbox(t, a)
+	var settings ForwardingSettings
+	if code := admin.do("POST", "/api/me/forwarding/verified-emails", map[string]string{"email": "account-forward@example.test"}, &settings); code != http.StatusCreated {
+		t.Fatalf("add account forwarding target code=%d settings=%+v", code, settings)
+	}
+	if code := admin.do("POST", "/api/me/forwarding/account", map[string]string{"targetEmail": "account-forward@example.test"}, &settings); code != http.StatusOK || settings.AccountTargetEmail != "account-forward@example.test" {
+		t.Fatalf("save account forwarding code=%d settings=%+v", code, settings)
+	}
+
+	ctx := context.Background()
+	inboxID, err := a.ensureFolder(ctx, mb.ID, "Inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertInbound := func(messageID, subject string, raw []byte) string {
+		t.Helper()
+		now := a.now().UTC()
+		id, err := a.insertMessage(ctx, storedMessage{
+			MailboxID:     mb.ID,
+			FolderID:      inboxID,
+			MessageUID:    newID("uid"),
+			MessageID:     messageID,
+			Subject:       subject,
+			From:          "sender@example.test",
+			To:            []string{mb.Address},
+			SentAt:        now,
+			ReceivedAt:    now,
+			Snippet:       "body",
+			BodyText:      "body",
+			IsRead:        false,
+			RecipientAddr: mb.Address,
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.processInboundForwarding(ctx, id, mb.ID, raw)
+		return id
+	}
+
+	raw := []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: account forward\r\nMessage-ID: <account-forward@example.test>\r\n\r\nbody")
+	firstID := insertInbound("<account-forward@example.test>", "account forward", raw)
+	var recipientsJSON string
+	if err := a.db.QueryRow(`SELECT recipients_json FROM send_queue WHERE source=? AND sent_message_id=?`, sendSourceForwarding, firstID).Scan(&recipientsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(recipientsJSON, "account-forward@example.test") {
+		t.Fatalf("account forwarding recipients=%s", recipientsJSON)
+	}
+	if err := a.processDueSendQueue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case body := <-received:
+		if !strings.Contains(body, forwardingHeaderName+": mail.example.test") || !strings.Contains(body, "X-LanQin-Forwarded-For: admin@lanqin.local") || strings.Contains(body, "\r\n\r\n\r\nbody") {
+			t.Fatalf("unexpected forwarded body: %q", body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("account forwarding mail was not relayed")
+	}
+
+	if code := admin.do("POST", "/api/me/forwarding/verified-emails", map[string]string{"email": "mailbox-forward@example.test"}, &settings); code != http.StatusCreated {
+		t.Fatalf("add mailbox forwarding target code=%d settings=%+v", code, settings)
+	}
+	if code := admin.do("POST", "/api/me/mailboxes/"+mb.ID+"/forwarding", map[string]string{"targetEmail": "mailbox-forward@example.test"}, &settings); code != http.StatusOK {
+		t.Fatalf("save mailbox forwarding code=%d settings=%+v", code, settings)
+	}
+	raw = []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: mailbox forward\r\nMessage-ID: <mailbox-forward@example.test>\r\n\r\nbody")
+	secondID := insertInbound("<mailbox-forward@example.test>", "mailbox forward", raw)
+	if err := a.db.QueryRow(`SELECT recipients_json FROM send_queue WHERE source=? AND sent_message_id=?`, sendSourceForwarding, secondID).Scan(&recipientsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(recipientsJSON, "mailbox-forward@example.test") || strings.Contains(recipientsJSON, "account-forward@example.test") {
+		t.Fatalf("mailbox forwarding should override account target, recipients=%s", recipientsJSON)
+	}
+
+	loopRaw := []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: loop\r\n" + forwardingHeaderName + ": mail.example.test\r\nMessage-ID: <forward-loop@example.test>\r\n\r\nbody")
+	insertInbound("<forward-loop@example.test>", "loop", loopRaw)
+	var queueCount int
+	if err := a.db.QueryRow(`SELECT COUNT(1) FROM send_queue WHERE source=?`, sendSourceForwarding).Scan(&queueCount); err != nil {
+		t.Fatal(err)
+	}
+	if queueCount != 2 {
+		t.Fatalf("forwarding queue count=%d, want 2", queueCount)
+	}
+}
+
 func TestMailSendRejectsUnauthorizedFrom(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())

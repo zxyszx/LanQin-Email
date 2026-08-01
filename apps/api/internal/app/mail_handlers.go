@@ -1007,6 +1007,7 @@ func (a *App) sendMailWithSource(ctx context.Context, user *User, mb *Mailbox, r
 		if inboxMsgID, err := a.insertMessage(ctx, copyMsg, req.Attachments); err == nil {
 			_ = a.writeStoredMessageToMaildir(ctx, inboxMsgID, copyMsg, req.Attachments)
 			a.applyInboundControls(ctx, inboxMsgID, rcptMailbox.ID, copyMsg.From, copyMsg.Subject)
+			a.processInboundForwarding(ctx, inboxMsgID, rcptMailbox.ID, mimeBytes)
 		}
 	}
 

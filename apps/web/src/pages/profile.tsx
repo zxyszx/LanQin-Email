@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { ArrowLeft, BarChart3, Ban, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Repeat2, Search, SendHorizontal, Settings, Share2, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
-import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
+import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
 import { DisplayMode, useDisplayMode } from "@/lib/display-mode"
@@ -1365,6 +1365,8 @@ function MailboxManagement({
   onSyncExternal: (id: string) => void
   onSyncExternalFolder: (id: string, folder: string) => void
 }) {
+  const qc = useQueryClient()
+  const { toast } = useToast()
   const canApply = !!applyOptions?.enabled && (applyOptions.domains || []).length > 0
   const [domainId, setDomainId] = React.useState(() => applyOptions?.domains?.[0]?.id || "")
   const [localPart, setLocalPart] = React.useState("")
@@ -1374,29 +1376,82 @@ function MailboxManagement({
   const [noteDraft, setNoteDraft] = React.useState("")
   const [forwardingMailbox, setForwardingMailbox] = React.useState<Mailbox | null>(null)
   const [forwardDraft, setForwardDraft] = React.useState("none")
-  const [mailboxForwards, setMailboxForwards] = React.useState<Record<string, string>>(() => readLocalRecord("lanqin:seek-mailbox-forward-targets"))
-  const [accountForwardTarget, setAccountForwardTarget] = React.useState(() => readLocalString("lanqin:account-forward-target") || "none")
+  const [accountForwardTarget, setAccountForwardTarget] = React.useState("none")
   const [verifiedDialogOpen, setVerifiedDialogOpen] = React.useState(false)
   const [verifiedEmailDraft, setVerifiedEmailDraft] = React.useState("")
-  const [verifiedEmails, setVerifiedEmails] = React.useState<string[]>(() => readLocalStringList("lanqin:seek-verified-forward-emails"))
   const [logs, setLogs] = React.useState<MailboxActionLog[]>(() => readLocalLogs("lanqin:seek-mailbox-action-logs"))
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
+  const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
+  const verifiedEmailItems = forwarding.data?.verifiedEmails || []
+  const verifiedEmails = React.useMemo(() => verifiedEmailItems.map((item) => item.email), [verifiedEmailItems])
+  const mailboxForwards = React.useMemo<Record<string, string>>(() => {
+    const next: Record<string, string> = {}
+    for (const rule of forwarding.data?.mailboxRules || []) {
+      if (rule.targetEmail) next[rule.mailboxId] = rule.targetEmail
+    }
+    return next
+  }, [forwarding.data?.mailboxRules])
   const normalizedMailboxSearch = mailboxSearch.trim().toLowerCase()
   const domainOptions = applyOptions?.domains || []
   const selectedDomain = domainOptions.find((domain) => domain.id === domainId) || domainOptions[0]
   const filteredMailboxes = normalizedMailboxSearch
     ? mailboxes.filter((mailbox) => `${mailbox.address} ${notes[mailbox.id] || ""}`.toLowerCase().includes(normalizedMailboxSearch))
     : mailboxes
+  const setForwardingCache = React.useCallback((settings: ForwardingSettings) => {
+    qc.setQueryData(["forwarding-settings"], settings)
+  }, [qc])
+  const addVerifiedEmail = useMutation({
+    mutationFn: api.addForwardingVerifiedEmail,
+    onSuccess: (settings, email) => {
+      setForwardingCache(settings)
+      addLog("添加验证邮箱", email)
+      setVerifiedEmailDraft("")
+      toast({ title: "验证邮箱已添加" })
+    },
+    onError: (error) => toast({ title: "添加失败", description: error.message }),
+  })
+  const deleteVerifiedEmail = useMutation({
+    mutationFn: ({ id }: { id: string; email: string }) => api.deleteForwardingVerifiedEmail(id),
+    onSuccess: (settings, item) => {
+      setForwardingCache(settings)
+      addLog("移除验证邮箱", item.email)
+      toast({ title: "验证邮箱已移除" })
+    },
+    onError: (error) => toast({ title: "移除失败", description: error.message }),
+  })
+  const saveAccountForwarding = useMutation({
+    mutationFn: api.updateAccountForwarding,
+    onSuccess: (settings, target) => {
+      setForwardingCache(settings)
+      addLog("保存账号转发", target || "不转发")
+      toast({ title: "账号级转发已保存" })
+    },
+    onError: (error) => toast({ title: "保存失败", description: error.message }),
+  })
+  const saveMailboxForwarding = useMutation({
+    mutationFn: ({ mailboxId, targetEmail }: { mailboxId: string; targetEmail: string }) => api.updateMailboxForwarding(mailboxId, targetEmail),
+    onSuccess: (settings, payload) => {
+      setForwardingCache(settings)
+      const mailbox = mailboxes.find((item) => item.id === payload.mailboxId)
+      addLog("保存邮箱转发", mailbox?.address || payload.mailboxId)
+      setForwardingMailbox(null)
+      setForwardDraft("none")
+      toast({ title: "邮箱转发已保存" })
+    },
+    onError: (error) => toast({ title: "保存失败", description: error.message }),
+  })
+  const forwardingBusy = forwarding.isLoading || addVerifiedEmail.isPending || deleteVerifiedEmail.isPending || saveAccountForwarding.isPending || saveMailboxForwarding.isPending
 
   React.useEffect(() => {
     if (!domainOptions.length) return
     setDomainId((current) => domainOptions.some((domain) => domain.id === current) ? current : domainOptions[0].id)
   }, [domainOptions])
 
-  React.useEffect(() => { writeLocalString("lanqin:account-forward-target", accountForwardTarget) }, [accountForwardTarget])
+  React.useEffect(() => {
+    setAccountForwardTarget(forwarding.data?.accountTargetEmail || "none")
+  }, [forwarding.data?.accountTargetEmail])
+
   React.useEffect(() => { writeLocalRecord("lanqin:seek-mailbox-notes", notes) }, [notes])
-  React.useEffect(() => { writeLocalRecord("lanqin:seek-mailbox-forward-targets", mailboxForwards) }, [mailboxForwards])
-  React.useEffect(() => { writeLocalStringList("lanqin:seek-verified-forward-emails", verifiedEmails) }, [verifiedEmails])
   React.useEffect(() => { writeLocalLogs("lanqin:seek-mailbox-action-logs", logs) }, [logs])
 
   function addLog(action: string, target: string) {
@@ -1431,33 +1486,20 @@ function MailboxManagement({
 
   function saveMailboxForward() {
     if (!forwardingMailbox) return
-    setMailboxForwards((items) => ({ ...items, [forwardingMailbox.id]: forwardDraft }))
-    addLog("保存转发", forwardingMailbox.address)
-    setForwardingMailbox(null)
-    setForwardDraft("none")
+    saveMailboxForwarding.mutate({ mailboxId: forwardingMailbox.id, targetEmail: forwardDraft === "none" ? "" : forwardDraft })
   }
 
   function submitVerifiedEmail(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const value = verifiedEmailDraft.trim()
     if (!value || verifiedEmails.includes(value)) return
-    setVerifiedEmails((items) => [value, ...items])
-    addLog("添加验证邮箱", value)
-    setVerifiedEmailDraft("")
+    addVerifiedEmail.mutate(value)
   }
 
-  function removeVerifiedEmail(value: string) {
-    setVerifiedEmails((items) => items.filter((item) => item !== value))
-    setMailboxForwards((items) => {
-      const next = { ...items }
-      for (const [id, target] of Object.entries(next)) {
-        if (target === value) next[id] = "none"
-      }
-      return next
-    })
-    if (accountForwardTarget === value) setAccountForwardTarget("none")
-    if (forwardDraft === value) setForwardDraft("none")
-    addLog("移除验证邮箱", value)
+  function removeVerifiedEmail(id: string, email: string) {
+    if (accountForwardTarget === email) setAccountForwardTarget("none")
+    if (forwardDraft === email) setForwardDraft("none")
+    deleteVerifiedEmail.mutate({ id, email })
   }
 
   function confirmLocalAction(action: string, mailbox: Mailbox, destructive = false) {
@@ -1513,6 +1555,7 @@ function MailboxManagement({
           {filteredMailboxes.map((mailbox) => {
             const note = notes[mailbox.id]?.trim()
             const forwardTarget = mailboxForwards[mailbox.id]
+            const accountForwardTargetActive = !forwardTarget && accountForwardTarget !== "none"
             return (
               <div key={mailbox.id} className={cn("grid gap-3 px-6 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center", selectedMailboxId === mailbox.id && "bg-muted/50")}>
                 <div className="flex min-w-0 items-center gap-4">
@@ -1528,6 +1571,7 @@ function MailboxManagement({
                       <span>创建于 {formatDateTime(mailbox.createdAt)}</span>
                       {note && <span className="max-w-full truncate">备注：{note}</span>}
                       {forwardTarget && forwardTarget !== "none" && <span className="max-w-full truncate">转发：{forwardTarget}</span>}
+                      {accountForwardTargetActive && <span className="max-w-full truncate">转发：使用账号级 {accountForwardTarget}</span>}
                     </div>
                   </div>
                 </div>
@@ -1553,11 +1597,14 @@ function MailboxManagement({
           <div className="mb-3 text-sm font-medium">账号级转发</div>
           <div className="mb-4 text-sm text-muted-foreground">对所有邮箱生效，邮箱单独设置优先级更高</div>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_72px]">
-            <select value={accountForwardTarget} onChange={(event) => setAccountForwardTarget(event.target.value)} className="h-[37px] rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-1 focus:ring-ring">
-              <option value="none">不转发</option>
-              {verifiedEmails.map((email) => <option key={email} value={email}>{email}</option>)}
-            </select>
-            <Button type="button" className="h-[37px]" onClick={() => addLog("保存转发", accountForwardTarget === "none" ? "不转发" : accountForwardTarget)}>保存</Button>
+            <Select value={accountForwardTarget} onValueChange={setAccountForwardTarget} disabled={forwardingBusy}>
+              <SelectTrigger className="h-[37px] shadow-none"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不转发</SelectItem>
+                {verifiedEmails.map((email) => <SelectItem key={email} value={email}>{email}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button type="button" className="h-[37px]" disabled={forwardingBusy} onClick={() => saveAccountForwarding.mutate(accountForwardTarget === "none" ? "" : accountForwardTarget)}>{saveAccountForwarding.isPending ? "保存中" : "保存"}</Button>
           </div>
         </div>
         {verifiedEmails.length === 0 && <p className="mt-4 text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
@@ -1598,16 +1645,19 @@ function MailboxManagement({
           <div className="space-y-4">
             <div className="truncate text-sm text-muted-foreground">{forwardingMailbox?.address}</div>
             <Field label="转发到">
-              <select value={forwardDraft} onChange={(event) => setForwardDraft(event.target.value)} className="h-[37px] w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-1 focus:ring-ring">
-                <option value="none">不转发</option>
-                {verifiedEmails.map((email) => <option key={email} value={email}>{email}</option>)}
-              </select>
+              <Select value={forwardDraft} onValueChange={setForwardDraft} disabled={forwardingBusy}>
+                <SelectTrigger className="h-[37px] shadow-none"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不转发</SelectItem>
+                  {verifiedEmails.map((email) => <SelectItem key={email} value={email}>{email}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </Field>
             {verifiedEmails.length === 0 && <p className="text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
           </div>
           <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-            <Button type="button" variant="outline" onClick={() => setForwardingMailbox(null)}>取消</Button>
-            <Button type="button" onClick={saveMailboxForward}>保存</Button>
+            <Button type="button" variant="outline" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
+            <Button type="button" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1616,16 +1666,19 @@ function MailboxManagement({
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>管理验证邮箱</DialogTitle></DialogHeader>
           <form className="flex gap-2" onSubmit={submitVerifiedEmail}>
-            <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-[37px] flex-1" placeholder="输入邮箱地址" />
-            <Button className="h-[37px] px-4" disabled={!verifiedEmailDraft.trim()}>添加</Button>
+            <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-[37px] flex-1" placeholder="输入邮箱地址" disabled={forwardingBusy} />
+            <Button className="h-[37px] px-4" disabled={forwardingBusy || !verifiedEmailDraft.trim()}>{addVerifiedEmail.isPending ? "添加中" : "添加"}</Button>
           </form>
           <div className="space-y-2">
-            {verifiedEmails.map((email) => (
-              <div key={email} className="flex h-10 items-center justify-between gap-3 rounded-md border px-3 text-sm">
-                <span className="min-w-0 truncate">{email}</span>
-                <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => removeVerifiedEmail(email)} aria-label={`移除 ${email}`}>
+            {verifiedEmailItems.map((item) => (
+              <div key={item.id} className="flex h-10 items-center justify-between gap-3 rounded-md border px-3 text-sm">
+                <span className="min-w-0 truncate">{item.email}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="secondary" className="h-5 rounded-md px-1.5 text-[10px]">{item.verified ? "已验证" : "待验证"}</Badge>
+                  <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" disabled={forwardingBusy} onClick={() => removeVerifiedEmail(item.id, item.email)} aria-label={`移除 ${item.email}`}>
                   <X className="h-4 w-4" />
-                </Button>
+                  </Button>
+                </div>
               </div>
             ))}
             {verifiedEmails.length === 0 && <div className="py-6 text-center text-sm text-muted-foreground">暂无验证邮箱</div>}

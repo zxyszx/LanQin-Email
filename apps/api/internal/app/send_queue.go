@@ -28,6 +28,7 @@ const (
 	sendSourceWebmail    = "webmail"
 	sendSourceSubmission = "submission"
 	sendSourceOpenAPI    = "open_api"
+	sendSourceForwarding = "forwarding"
 
 	sendQueueStaleAfter  = 15 * time.Minute
 	sendQueueConcurrency = 4
