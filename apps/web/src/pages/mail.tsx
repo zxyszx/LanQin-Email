@@ -89,6 +89,19 @@ const filterLabels: Record<MailFilter, string> = {
 const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "", startDate: "", endDate: "", hasAttachments: false, unread: false, starred: false }
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
 const mailboxSelectionStorageVersion = "2"
+const mailCompactBreakpoint = 1024
+
+function useMaxViewportWidth(maxWidth: number) {
+  const [matches, setMatches] = React.useState(false)
+  React.useEffect(() => {
+    const media = window.matchMedia(`(max-width: ${maxWidth - 1}px)`)
+    const sync = () => setMatches(media.matches)
+    media.addEventListener("change", sync)
+    sync()
+    return () => media.removeEventListener("change", sync)
+  }, [maxWidth])
+  return matches
+}
 
 export function MailPage() {
   const qc = useQueryClient()
@@ -119,6 +132,8 @@ export function MailPage() {
   const [language, setLanguage] = useLanguage()
   const [displayMode] = useDisplayMode()
   const isMobile = useIsMobile()
+  const isNarrowMailViewport = useMaxViewportWidth(mailCompactBreakpoint)
+  const compactMailLayout = isMobile || isNarrowMailViewport || displayMode === "compact"
   const [refreshing, setRefreshing] = React.useState(false)
   const [autoRefreshing, setAutoRefreshing] = React.useState(false)
   const [lastAutoRefreshAt, setLastAutoRefreshAt] = React.useState<Date | null>(null)
@@ -1052,7 +1067,7 @@ export function MailPage() {
   }
   const sidebarContent = (
     <Sidebar collapsible="none" className="h-full w-full border-r border-border bg-sidebar text-sidebar-foreground">
-      <SidebarHeader className={cn("pb-3 pt-4", sidebarCollapsed ? "px-2" : "px-3")}>
+      <SidebarHeader className={cn("pb-2 pt-3", sidebarCollapsed ? "px-2" : "px-3")}>
         <AccountHeader
           collapsed={sidebarCollapsed}
           name={me.data?.user.displayName || selectedMailbox?.address || "LanQin"}
@@ -1063,7 +1078,7 @@ export function MailPage() {
           onLanguageChange={setLanguage}
           onSettings={openSettings}
         />
-        <div className={cn("mt-2 flex gap-2", sidebarCollapsed && "justify-center")}>
+        <div className={cn("mt-2 flex gap-1.5", sidebarCollapsed && "justify-center")}>
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
@@ -1073,13 +1088,13 @@ export function MailPage() {
             onSelect={switchMailbox}
           />
           {!sidebarCollapsed && !isAllMailboxSelected && (
-            <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0 rounded-md bg-background shadow-none hover:bg-background" onClick={copyCurrentMailbox} disabled={!selectedMailbox} aria-label="复制邮箱地址">
-              <Copy className="h-4 w-4" />
+            <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background" onClick={copyCurrentMailbox} disabled={!selectedMailbox} aria-label="复制邮箱地址">
+              <Copy className="h-3.5 w-3.5" />
             </Button>
           )}
         </div>
         {canSendMail && (
-          <Button className={cn("mt-5 h-10 w-full rounded-md text-sm font-semibold shadow-none", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
+          <Button className={cn("mt-4 h-9 w-full rounded-md text-[13px] font-semibold shadow-none", sidebarCollapsed && "px-0")} size={sidebarCollapsed ? "icon" : "default"} onClick={() => openCompose()} disabled={!selectedComposeMailbox}>
             <PencilLine className="h-4 w-4" />
             {!sidebarCollapsed && <span>写邮件</span>}
           </Button>
@@ -1108,7 +1123,7 @@ export function MailPage() {
                   <SidebarMenuButton
                     isActive={item.type === "starred" ? mailView === "starred" : item.type === "scheduled" ? mailView === "scheduled" : item.type === "sendQueue" ? mailView === "sendQueue" : mailView === "folder" && folder === item.folderName}
                     className={cn(
-                      "h-9 rounded-md px-2 text-sm font-normal",
+                      "h-8 rounded-md px-2 text-[13px] font-normal",
                       sidebarCollapsed && "justify-center px-0",
                       item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed && "cursor-grab active:cursor-grabbing",
                       item.type === "folder" && item.custom && draggingFolderId === item.folderId && "opacity-50",
@@ -1172,7 +1187,7 @@ export function MailPage() {
                     <SidebarMenuItem key={`${account.id}-${item.name}`}>
                       <SidebarMenuButton
                         isActive={externalFolder === item.name}
-                        className="pl-8"
+                        className="h-8 pl-8 text-[13px]"
                         onClick={() => openExternalFolder(account, item.name)}
                       >
                         {folderIcons[item.role.toLowerCase()] || <Inbox className="h-4 w-4" />}
@@ -1214,7 +1229,7 @@ export function MailPage() {
                   <SidebarMenuButton
                     isActive={mailView === "folder" && folder === item.folderName}
                     className={cn(
-                      "h-9 rounded-md px-2 text-sm font-normal",
+                      "h-8 rounded-md px-2 text-[13px] font-normal",
                       sidebarCollapsed && "justify-center px-0",
                       item.type === "folder" && item.custom && canOrganizeCurrentMailbox && !sidebarCollapsed && "cursor-grab active:cursor-grabbing",
                       draggingFolderId === item.folderId && "opacity-50",
@@ -1272,7 +1287,7 @@ export function MailPage() {
                   <SidebarMenuItem key={label.id}>
                     <SidebarMenuButton
                       isActive={!labelEditMode && mailView === "label" && selectedLabelId === label.id}
-                      className={cn("h-9 rounded-md px-2 text-sm font-normal", sidebarCollapsed && "justify-center px-0")}
+                      className={cn("h-8 rounded-md px-2 text-[13px] font-normal", sidebarCollapsed && "justify-center px-0")}
                       onClick={() => { if (!labelEditMode) openLabel(label.id) }}
                     >
                       {sidebarCollapsed ? (
@@ -1323,7 +1338,7 @@ export function MailPage() {
     <NoMailboxState onOpenSettings={openSettings} />
   ) : mailView === "scheduled" && canScheduleMail ? (
     <ScheduledSendView
-      compact={isMobile || displayMode === "compact"}
+      compact={compactMailLayout}
       items={visibleScheduledItems}
       total={scheduledItems.length}
       loading={scheduledSends.isLoading}
@@ -1335,7 +1350,7 @@ export function MailPage() {
     <PermissionEmptyState title="无定时发送权限" description="当前账号不能查看或管理定时发送任务。" onOpenSettings={openSettings} />
   ) : mailView === "sendQueue" && canViewSendQueue ? (
     <SendQueueView
-      compact={isMobile || displayMode === "compact"}
+      compact={compactMailLayout}
       items={visibleSendQueueItems}
       total={sendQueueItems.length}
       loading={sendQueue.isLoading}
@@ -1358,7 +1373,7 @@ export function MailPage() {
     />
   ) : mailView === "sendQueue" ? (
     <PermissionEmptyState title="无发送队列权限" description="当前账号不能查看发送队列。" onOpenSettings={openSettings} />
-  ) : isMobile || displayMode === "compact" ? (
+  ) : compactMailLayout ? (
     <CompactMailView
       title={viewTitle}
       icon={mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: generateLabelColor(selectedLabel.name).backgroundColor }} />{selectedLabel.name}</Badge> : undefined}
@@ -1402,12 +1417,12 @@ export function MailPage() {
     />
   ) : (
     <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1 bg-background">
-      <ResizablePanel defaultSize={23} minSize={18} maxSize={30}>
+      <ResizablePanel defaultSize={24} minSize={20} maxSize={34} className="min-w-0">
         <div className="flex h-full min-h-0 flex-col bg-background">
-          <div className="shrink-0 border-b px-4 pb-3 pt-3">
+          <div className="shrink-0 border-b px-3 pb-2.5 pt-2.5">
             <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="搜索发件人、主题、内容..." className="h-10 rounded-lg bg-background pl-9 text-sm shadow-none" />
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="搜索发件人、主题、内容..." className="h-9 rounded-md bg-background pl-8 text-[13px] shadow-none" />
             </div>
             <div className="relative mt-2">
               <Button type="button" variant={advancedSearchActive || advancedSearchOpen ? "secondary" : "outline"} size="sm" className="h-7 rounded-md px-2 text-xs font-normal shadow-none" onClick={toggleAdvancedSearch}>
@@ -1431,7 +1446,7 @@ export function MailPage() {
                 <Button type="button" variant="ghost" className="h-6 rounded-full px-2 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={clearAdvancedSearch}>清空</Button>
               </div>
             )}
-            <div className="mt-3 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground">
+            <div className="mt-2.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
               <span className="shrink-0">快捷筛选</span>
               {(["attachments", "starred", "recent7"] as MailFilter[]).map((value) => (
                 <Button
@@ -1439,7 +1454,7 @@ export function MailPage() {
                   type="button"
                   variant={mailFilter === value ? "secondary" : "outline"}
                   size="sm"
-                  className={cn("h-7 shrink-0 rounded-full px-3 text-xs font-normal shadow-none", mailFilter === value && "bg-accent text-accent-foreground")}
+                  className={cn("h-7 shrink-0 rounded-full px-2.5 text-xs font-normal shadow-none", mailFilter === value && "bg-accent text-accent-foreground")}
                   onClick={() => setMailFilter(mailFilter === value ? "all" : value)}
                 >
                   {filterLabels[value]}
@@ -1447,27 +1462,27 @@ export function MailPage() {
               ))}
             </div>
           </div>
-          <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b px-4">
-            <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2">
               <div className="flex items-center gap-1">
                 <Checkbox aria-label="选择当前页邮件" checked={compactAllSelected ? true : compactSomeSelected ? "indeterminate" : false} onCheckedChange={(value) => toggleCompactSelectAll(value === true)} />
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
-              <div className="flex min-w-0 items-center gap-3">
-                <h1 className="shrink-0 text-2xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="min-w-0 truncate text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
                 <div className="flex items-center gap-1.5">
-                  <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("h-8 w-8 text-muted-foreground hover:bg-transparent hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
+                  <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
                     <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
                   </Button>
-                  {canOrganizeMail && <Button size="icon" variant="ghost" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)} className="h-8 w-8 text-muted-foreground hover:bg-transparent hover:text-foreground" title="全部已读"><Download className="h-4 w-4" /></Button>}
-                  <Button size="icon" variant="ghost" disabled className="h-8 w-8 text-muted-foreground hover:bg-transparent" title="导入"><Upload className="h-4 w-4" /></Button>
+                  {canOrganizeMail && <Button size="icon" variant="ghost" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)} className="h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground" title="全部已读"><Download className="h-4 w-4" /></Button>}
+                  <Button size="icon" variant="ghost" disabled className="hidden h-7 w-7 text-muted-foreground hover:bg-transparent min-[1180px]:inline-flex" title="导入"><Upload className="h-4 w-4" /></Button>
                 </div>
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
               {selectedCountOnPage > 0 && canOrganizeMail && <BulkActionMenu pending={bulkPending} onAction={runBulkAction} />}
-              <Button type="button" variant={mailFilter === "all" ? "secondary" : "outline"} size="sm" className="h-9 rounded-md px-4 text-sm font-normal shadow-none" onClick={() => setMailFilter("all")}>全部</Button>
-              <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-9 rounded-md px-4 text-sm font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
+              <Button type="button" variant={mailFilter === "all" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("all")}>全部</Button>
+              <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
             </div>
           </div>
           <ScrollArea className="min-h-0 flex-1">
@@ -1486,7 +1501,7 @@ export function MailPage() {
       </ResizablePanel>
       <ResizableHandle />
 
-      <ResizablePanel defaultSize={77} minSize={60}>
+      <ResizablePanel defaultSize={76} minSize={50} className="min-w-0">
         <section className="h-full min-h-0 bg-background">
           {!selectedId && (
             <div className="grid h-full place-items-center text-muted-foreground">
@@ -1532,7 +1547,7 @@ export function MailPage() {
 
   return (
     <div className="h-svh overflow-hidden bg-background">
-      <SidebarProvider className="h-full min-h-0 w-full flex-col">
+      <SidebarProvider className="h-full min-h-0 w-full min-w-0 flex-col">
         {isMobile ? (
           <div className="flex h-full min-h-0 flex-col">
             {!selectedId && (
@@ -1560,13 +1575,13 @@ export function MailPage() {
             <section className="flex min-h-0 flex-1 flex-col">{contentView}</section>
           </div>
         ) : (
-          <ResizablePanelGroup direction="horizontal" className="h-full min-h-0 w-full">
-            <ResizablePanel defaultSize={13} minSize={10} maxSize={18}>
+          <ResizablePanelGroup direction="horizontal" className="h-full min-h-0 w-full min-w-0">
+            <ResizablePanel defaultSize={13} minSize={8} maxSize={18} className="min-w-0">
               {sidebarContent}
             </ResizablePanel>
             <ResizableHandle />
-            <ResizablePanel defaultSize={87} minSize={60}>
-              <section className="flex h-full min-h-0 flex-col">
+            <ResizablePanel defaultSize={87} minSize={45} className="min-w-0">
+              <section className="flex h-full min-h-0 min-w-0 flex-col">
                 {contentView}
               </section>
             </ResizablePanel>
@@ -2236,11 +2251,11 @@ function BulkActionMenu({ pending, onAction }: { pending: boolean; onAction: (ac
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={pending}>
-          批量操作
+        <Button variant="outline" size="icon" className="h-8 w-8 rounded-md shadow-none" disabled={pending} title="批量操作" aria-label="批量操作">
+          <Ellipsis className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-40">
         <DropdownMenuItem onSelect={() => onAction("read")}>标为已读</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onAction("unread")}>标为未读</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onAction("star")}>添加星标</DropdownMenuItem>
@@ -2592,23 +2607,23 @@ function CompactMailView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <Checkbox aria-label="选择当前页邮件" checked={allSelected ? true : someSelected ? "indeterminate" : false} onCheckedChange={(value) => onSelectAll(value === true)} />
-          <div className="flex min-w-0 items-center gap-2 text-base font-semibold">
+          <div className="flex min-w-0 items-center gap-2 text-[15px] font-semibold">
             {icon}
             <span className="truncate">{title}</span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           {selectedIds.length > 0 ? (
             <>
-              <span className="hidden text-sm text-muted-foreground min-[380px]:inline">已选 {selectedIds.length} 封</span>
+              <span className="hidden text-xs text-muted-foreground min-[380px]:inline">已选 {selectedIds.length} 封</span>
               {canOrganize && <BulkActionMenu pending={bulkPending} onAction={onBulkAction} />}
             </>
           ) : (
-            <div className="text-sm text-muted-foreground">{messages.length} / {total} 封</div>
+            <div className="text-xs text-muted-foreground">{messages.length} / {total} 封</div>
           )}
         </div>
       </div>
@@ -2900,7 +2915,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
   const hiddenLabelCount = Math.max((message.labels?.length || 0) - visibleLabels.length, 0)
   const senderName = senderDisplayName(message)
   return (
-    <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-3 py-3 text-sm transition-colors hover:bg-accent/50 sm:grid sm:grid-cols-[32px_28px_minmax(140px,220px)_minmax(0,1fr)_104px_36px] sm:items-center sm:gap-2 sm:px-4 sm:py-2", active && "bg-accent", !message.isRead && "font-semibold")}>
+    <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-3 py-2.5 text-[13px] transition-colors hover:bg-accent/50 sm:grid sm:grid-cols-[28px_24px_minmax(112px,180px)_minmax(0,1fr)_86px_30px] sm:items-center sm:gap-2 sm:px-3 sm:py-2", active && "bg-accent", !message.isRead && "font-semibold")}>
       <div className="flex gap-3 sm:contents">
         <Checkbox aria-label="选择邮件" checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} onClick={(event) => event.stopPropagation()} className="mt-0.5 shrink-0 sm:mt-0" />
         {message.isRead ? (
@@ -2913,8 +2928,8 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
             <div className="min-w-0 truncate" title={senderTitle(message)}>{senderName}</div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
               <span className="text-xs text-muted-foreground">{formatDate(message.receivedAt)}</span>
-              {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-7 w-7 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
-                <Star className={cn("h-4 w-4", message.isStarred && "fill-yellow-400 text-yellow-500")} />
+              {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
+                <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
               </Button>}
             </div>
           </div>
@@ -2930,8 +2945,8 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
         </div>
       </div>
       <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">{formatDate(message.receivedAt)}</div>
-      {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-7 w-7 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
-        <Star className={cn("h-4 w-4", message.isStarred && "fill-yellow-400 text-yellow-500")} />
+      {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="hidden h-6 w-6 text-muted-foreground hover:text-yellow-500 sm:inline-flex" onClick={(event) => { event.stopPropagation(); onStar() }}>
+        <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
       </Button>}
     </div>
   )
@@ -2980,8 +2995,8 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   if (collapsed) {
     return (
       <div className="flex justify-center">
-        <Avatar className="size-[32px] rounded-full">
-          <AvatarFallback className="bg-primary text-[13px] font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
+        <Avatar className="size-[30px] rounded-full">
+          <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
         </Avatar>
       </div>
     )
@@ -2989,20 +3004,20 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
-        <Avatar className="size-[32px] rounded-full">
-          <AvatarFallback className="bg-primary text-[13px] font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
+        <Avatar className="size-[30px] rounded-full">
+          <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">{accountInitial(displayName, email)}</AvatarFallback>
         </Avatar>
-        <div className="min-w-0 text-sm">
-          <div className="truncate text-sm font-semibold leading-5 text-foreground">{displayName}</div>
+        <div className="min-w-0 text-[13px]">
+          <div className="truncate text-[13px] font-semibold leading-5 text-foreground">{displayName}</div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme}>
-          {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onToggleTheme}>
+          {darkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="hidden size-8 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="切换语言" title="切换语言">
+            <Button type="button" variant="ghost" size="icon" className="hidden size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="切换语言" title="切换语言">
               <span className="text-sm font-medium leading-none">{currentLanguage.shortLabel}</span>
             </Button>
           </DropdownMenuTrigger>
@@ -3015,8 +3030,8 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button type="button" variant="ghost" size="icon" className="size-8 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onSettings}>
-          <Settings className="h-4 w-4" />
+        <Button type="button" variant="ghost" size="icon" className="size-7 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={onSettings}>
+          <Settings className="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>
@@ -3039,17 +3054,17 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
   return (
     <DropdownMenu onOpenChange={(open) => { if (!open) setMailboxQuery("") }}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className={cn("h-9 min-w-0 flex-1 justify-start gap-2 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
-          <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <Button variant="outline" className={cn("h-8 min-w-0 flex-1 justify-start gap-1.5 overflow-hidden rounded-md border-input bg-background px-2 text-left font-normal shadow-none hover:bg-background", collapsed && "w-8 flex-none justify-center px-0")} title={displayAddress}>
+          <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {!collapsed && (
             <>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{displayAddress}</span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{displayAddress}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </>
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[225px] p-1">
+      <DropdownMenuContent align="start" className="w-[220px] p-1">
         {mailboxes.length > 0 && (
           <div className="px-1 pb-1">
             <Input
@@ -3058,20 +3073,20 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
               onChange={(event) => setMailboxQuery(event.target.value)}
               onKeyDown={(event) => event.stopPropagation()}
               placeholder="搜索邮箱..."
-              className="h-9 rounded-md bg-background px-2 text-sm shadow-none"
+              className="h-8 rounded-md bg-background px-2 text-[13px] shadow-none"
             />
           </div>
         )}
         {mailboxes.length === 0 && <DropdownMenuItem disabled>没有可用邮箱</DropdownMenuItem>}
         {mailboxes.length > 0 && showAllMailboxOption && (
-          <DropdownMenuItem onSelect={() => onSelect("all")} className={cn("h-8 gap-2 rounded-sm px-2 text-sm font-normal", isAllSelected && "bg-accent text-accent-foreground")}>
-            <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <DropdownMenuItem onSelect={() => onSelect("all")} className={cn("h-8 gap-2 rounded-sm px-2 text-[13px] font-normal", isAllSelected && "bg-accent text-accent-foreground")}>
+            <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">全部邮箱</span>
           </DropdownMenuItem>
         )}
         {filteredMailboxes.map((mailbox) => (
-          <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)} className={cn("h-8 min-w-0 gap-2 rounded-sm px-2 text-sm font-normal", !isAllSelected && selectedMailbox?.id === mailbox.id && "bg-accent text-accent-foreground")}>
-            <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)} className={cn("h-8 min-w-0 gap-2 rounded-sm px-2 text-[13px] font-normal", !isAllSelected && selectedMailbox?.id === mailbox.id && "bg-accent text-accent-foreground")}>
+            <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate" title={mailbox.address}>{mailbox.address}</span>
           </DropdownMenuItem>
         ))}
@@ -3301,8 +3316,8 @@ function MessageRow({
   const visibleLabels = (message.labels || []).slice(0, 2)
   const hiddenLabelCount = Math.max((message.labels?.length || 0) - visibleLabels.length, 0)
   const senderName = senderDisplayName(message)
-  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-4 py-3 transition-colors hover:bg-accent/60", active && "bg-accent", !message.isRead && "font-semibold")}>
-    <div className="flex gap-3">
+  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-3 py-2.5 transition-colors hover:bg-accent/60", active && "bg-accent", !message.isRead && "font-semibold")}>
+    <div className="flex gap-2.5">
       <Checkbox
         aria-label="选择邮件"
         checked={checked}
@@ -3312,23 +3327,23 @@ function MessageRow({
       />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="min-w-0 truncate text-sm font-medium" title={senderTitle(message)}>{senderName}</div>
+          <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
           <div className="flex shrink-0 items-center gap-1">
             {canOrganize && <Button
               type="button"
               variant="ghost"
               size="icon"
               aria-label={message.isStarred ? "取消星标" : "添加星标"}
-              className="h-7 w-7 text-muted-foreground hover:text-yellow-500"
+              className="h-6 w-6 text-muted-foreground hover:text-yellow-500"
               onClick={(e) => { e.stopPropagation(); onStar() }}
             >
-              <Star className={cn("h-4 w-4", message.isStarred && "fill-yellow-400 text-yellow-500")} />
+              <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
             <div className="text-xs text-muted-foreground">{formatDate(message.receivedAt)}</div>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-sm text-foreground">{message.subject || "无主题"}</span>
+          <span className="min-w-0 truncate text-[13px] text-foreground">{message.subject || "无主题"}</span>
           {scheduled && <Badge variant="secondary" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal">已定时</Badge>}
           {visibleLabels.map((label) => <MailLabelBadge key={label.id} label={label} />)}
           {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
