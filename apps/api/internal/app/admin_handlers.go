@@ -49,9 +49,9 @@ func (a *App) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
+	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
-		GROUP BY u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
+		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
 		ORDER BY u.created_at DESC`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list users")
@@ -64,7 +64,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		var disabled, twoFactorEnabled int
 		var mailboxLimitOverride sql.NullInt64
 		var created, mailboxCSV string
-		if err := rows.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
+		if err := rows.Scan(&item.ID, &item.LoginName, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to scan users")
 			return
 		}
@@ -154,8 +154,8 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,email,display_name,role,password_hash,disabled,mailbox_limit_override,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, id, loginName, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
+	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,mailbox_limit_override,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, id, loginName, loginName, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
 		badRequest(w, err)
 		return
 	}
@@ -598,7 +598,7 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err)
 			return
 		}
-		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE email=? AND disabled=0`, ownerLoginName).Scan(&userID)
+		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE (login_name=? OR email=?) AND disabled=0`, ownerLoginName, ownerLoginName).Scan(&userID)
 		if errors.Is(err, sql.ErrNoRows) {
 			passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 			if err != nil {
@@ -610,8 +610,8 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			if !strings.EqualFold(ownerLoginName, address) {
 				ownerDisplayName = ownerLoginName
 			}
-			_, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,email,display_name,role,password_hash,disabled,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?)`, userID, ownerLoginName, ownerDisplayName, role, string(passwordHash), 0, now, now)
+			_, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
+				VALUES(?,?,?,?,?,?,?,?,?)`, userID, ownerLoginName, ownerLoginName, ownerDisplayName, role, string(passwordHash), 0, now, now)
 			if err != nil {
 				badRequest(w, err)
 				return
@@ -1077,15 +1077,15 @@ func (a *App) domainByID(ctx context.Context, id string) (*Domain, error) {
 }
 
 func (a *App) adminUserByID(ctx context.Context, id string) (*AdminUser, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
+	row := a.db.QueryRowContext(ctx, `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
 		WHERE u.id=?
-		GROUP BY u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at`, id)
+		GROUP BY u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at`, id)
 	var item AdminUser
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var created, mailboxCSV string
-	if err := row.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
+	if err := row.Scan(&item.ID, &item.LoginName, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
 		return nil, err
 	}
 	item.Disabled = intBool(disabled)

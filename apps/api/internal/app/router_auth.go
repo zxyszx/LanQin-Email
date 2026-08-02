@@ -270,14 +270,14 @@ func (a *App) authenticateRequest(r *http.Request) (*User, error) {
 	if err != nil || cookie.Value == "" {
 		return nil, errors.New("no session")
 	}
-	row := a.db.QueryRowContext(r.Context(), `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
+	row := a.db.QueryRowContext(r.Context(), `SELECT u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
 		FROM sessions s JOIN users u ON u.id=s.user_id
 		WHERE s.token_hash=? AND s.expires_at > ?`, hashToken(cookie.Value), a.now().UTC().Format(time.RFC3339Nano))
 	var u User
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var created string
-	if err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
 		return nil, err
 	}
 	u.Disabled = intBool(disabled)
@@ -299,7 +299,7 @@ func (a *App) authenticateAPIToken(r *http.Request) (*User, map[string]bool, err
 		return nil, nil, errors.New("no api token")
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
-	row := a.db.QueryRowContext(r.Context(), `SELECT at.id,at.scopes_json,u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
+	row := a.db.QueryRowContext(r.Context(), `SELECT at.id,at.scopes_json,u.id,u.login_name,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
 		FROM api_tokens at JOIN users u ON u.id=at.user_id
 		WHERE at.token_hash=? AND at.disabled=0 AND at.expires_at > ?`, hashToken(token), now)
 	var tokenID, scopesJSON string
@@ -307,7 +307,7 @@ func (a *App) authenticateAPIToken(r *http.Request) (*User, map[string]bool, err
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var created string
-	if err := row.Scan(&tokenID, &scopesJSON, &u.ID, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+	if err := row.Scan(&tokenID, &scopesJSON, &u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
 		return nil, nil, err
 	}
 	u.Disabled = intBool(disabled)
@@ -337,13 +337,16 @@ func bearerToken(r *http.Request) string {
 }
 
 func (a *App) userByEmail(ctx context.Context, email string) (*User, string, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT id,email,display_name,role,password_hash,disabled,two_factor_enabled,mailbox_limit_override,created_at FROM users WHERE email=?`, email)
+	loginName := normalizeLoginName(email)
+	row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,display_name,role,password_hash,disabled,two_factor_enabled,mailbox_limit_override,created_at
+		FROM users WHERE login_name=? OR email=?
+		ORDER BY CASE WHEN login_name=? THEN 0 ELSE 1 END LIMIT 1`, loginName, loginName, loginName)
 	var u User
 	var passwordHash string
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var created string
-	if err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &passwordHash, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &passwordHash, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", errNotFound
 		}
@@ -360,12 +363,12 @@ func (a *App) userByEmail(ctx context.Context, email string) (*User, string, err
 }
 
 func (a *App) userByID(ctx context.Context, id string) (*User, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT id,email,display_name,role,disabled,two_factor_enabled,mailbox_limit_override,created_at FROM users WHERE id=?`, id)
+	row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,display_name,role,disabled,two_factor_enabled,mailbox_limit_override,created_at FROM users WHERE id=?`, id)
 	var u User
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var created string
-	if err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errNotFound
 		}

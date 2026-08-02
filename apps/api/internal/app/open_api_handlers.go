@@ -826,7 +826,7 @@ func (a *App) resolveMailboxOwnerTx(ctx context.Context, tx *sql.Tx, userID, own
 		return "", errors.New("invalid owner email")
 	}
 	var existing string
-	err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE email=? AND disabled=0`, email).Scan(&existing)
+	err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE (login_name=? OR email=?) AND disabled=0`, email, email).Scan(&existing)
 	if err == nil {
 		return existing, nil
 	}
@@ -838,8 +838,8 @@ func (a *App) resolveMailboxOwnerTx(ctx context.Context, tx *sql.Tx, userID, own
 	if displayName == "" {
 		displayName = email
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`, userID, email, displayName, "user", passwordHash, 0, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`, userID, email, email, displayName, "user", passwordHash, 0, now, now)
 	return userID, err
 }
 

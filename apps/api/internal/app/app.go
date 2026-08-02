@@ -123,6 +123,7 @@ func (a *App) migrate(ctx context.Context) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
+			login_name TEXT NOT NULL DEFAULT '',
 			email TEXT NOT NULL UNIQUE,
 			display_name TEXT NOT NULL,
 			role TEXT NOT NULL CHECK(role IN ('admin','user')),
@@ -601,6 +602,9 @@ func (a *App) migrate(ctx context.Context) error {
 	if err := a.rebuildHTMLOnlyMessageSnippets(ctx); err != nil {
 		return err
 	}
+	if err := a.migrateUserLoginNames(ctx); err != nil {
+		return err
+	}
 	if err := a.migrateUsersForTwoFactor(ctx); err != nil {
 		return err
 	}
@@ -1054,6 +1058,99 @@ func (a *App) migrateUsersForTwoFactor(ctx context.Context) error {
 	return nil
 }
 
+func (a *App) migrateUserLoginNames(ctx context.Context) error {
+	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(users)`)
+	if err != nil {
+		return err
+	}
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !columns["login_name"] {
+		if _, err := a.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN login_name TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	type loginUser struct {
+		id        string
+		email     string
+		loginName string
+	}
+	userRows, err := a.db.QueryContext(ctx, `SELECT id,email,login_name FROM users ORDER BY created_at,id`)
+	if err != nil {
+		return err
+	}
+	items := []loginUser{}
+	localCounts := map[string]int{}
+	used := map[string]bool{}
+	for userRows.Next() {
+		var item loginUser
+		if err := userRows.Scan(&item.id, &item.email, &item.loginName); err != nil {
+			userRows.Close()
+			return err
+		}
+		item.email = normalizeEmail(item.email)
+		item.loginName = normalizeLoginName(item.loginName)
+		if item.loginName != "" {
+			used[item.loginName] = true
+		}
+		if strings.Contains(item.email, "@") {
+			localCounts[strings.SplitN(item.email, "@", 2)[0]]++
+		}
+		items = append(items, item)
+	}
+	if err := userRows.Err(); err != nil {
+		userRows.Close()
+		return err
+	}
+	if err := userRows.Close(); err != nil {
+		return err
+	}
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	for _, item := range items {
+		if item.loginName != "" {
+			continue
+		}
+		candidate := item.email
+		if strings.Contains(item.email, "@") {
+			local := strings.SplitN(item.email, "@", 2)[0]
+			if localCounts[local] == 1 && !used[local] {
+				candidate = local
+			}
+		}
+		if candidate == "" {
+			candidate = normalizeLoginName(item.id)
+		}
+		base := candidate
+		for suffix := 2; used[candidate]; suffix++ {
+			candidate = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		if _, err := a.db.ExecContext(ctx, `UPDATE users SET login_name=?, updated_at=? WHERE id=?`, candidate, now, item.id); err != nil {
+			return err
+		}
+		used[candidate] = true
+	}
+	_, err = a.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_name ON users(login_name) WHERE login_name <> ''`)
+	return err
+}
+
 func (a *App) migrateUserMailboxLimitOverride(ctx context.Context) error {
 	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(users)`)
 	if err != nil {
@@ -1261,8 +1358,9 @@ func (a *App) seed(ctx context.Context) error {
 	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
 		return errors.New("invalid admin email")
 	}
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`, userID, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
+	adminLoginName := normalizeLoginName(strings.SplitN(adminEmail, "@", 2)[0])
+	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`, userID, adminLoginName, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
 		return err
 	}
 	a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "email", adminEmail)

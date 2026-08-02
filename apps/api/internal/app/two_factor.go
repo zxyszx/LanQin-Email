@@ -122,12 +122,12 @@ func (a *App) deleteLoginChallenge(ctx context.Context, id string) {
 }
 
 func (a *App) loadUserAuthByID(ctx context.Context, id string) (*User, string, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT id,email,display_name,role,disabled,two_factor_enabled,two_factor_secret,mailbox_limit_override,created_at FROM users WHERE id=?`, id)
+	row := a.db.QueryRowContext(ctx, `SELECT id,login_name,email,display_name,role,disabled,two_factor_enabled,two_factor_secret,mailbox_limit_override,created_at FROM users WHERE id=?`, id)
 	var u User
 	var disabled, twoFactorEnabled int
 	var mailboxLimitOverride sql.NullInt64
 	var secret, created string
-	if err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &secret, &mailboxLimitOverride, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.LoginName, &u.Email, &u.DisplayName, &u.Role, &disabled, &twoFactorEnabled, &secret, &mailboxLimitOverride, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", errNotFound
 		}
