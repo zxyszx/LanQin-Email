@@ -51,7 +51,7 @@ const accountSettingTabs: { key: AccountSettingsTab; label: string }[] = [
   { key: "clients", label: "通知与客户端" },
   { key: "security", label: "安全" },
 ]
-const actionLabels: Record<string, string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "规则转发" }
+const actionLabels: Record<string, string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "邮件转发" }
 
 export function ProfilePage() {
   const me = useMe()
@@ -2494,7 +2494,7 @@ const sizeConditionOperators: RuleConditionOperator[] = ["gt", "gte", "lt", "lte
 const dateConditionOperators: RuleConditionOperator[] = ["before", "after", "on", "equals", "not-equals"]
 const conditionFields = Object.keys(conditionFieldLabels) as RuleConditionField[]
 const commonRuleFolders = ["Inbox", "Archive", "Spam", "Trash"]
-const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "规则转发" }
+const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "邮件转发" }
 
 function RulesSection({ items, mailboxes, labels, open, onOpenChange, onCreate, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onDelete: (id: string) => void; pending: boolean }) {
   return (
@@ -2569,7 +2569,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-svh w-screen max-w-none gap-0 overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(94vw,84rem)]">
+      <DialogContent className="flex h-svh w-screen max-w-none gap-0 overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(94vw,56rem)]">
         <DialogHeader className="border-b px-4 py-4 text-left sm:px-8 sm:py-6">
           <DialogTitle className="text-xl sm:text-2xl">新建规则</DialogTitle>
         </DialogHeader>
@@ -2588,7 +2588,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
               </div>
               <div className="space-y-3">
                 {conditions.map((condition, index) => (
-                  <div key={index} className="grid gap-3 md:grid-cols-[220px_150px_minmax(0,1fr)_auto_auto]">
+                  <div key={index} className="grid gap-3 md:grid-cols-[180px_128px_minmax(0,1fr)_auto_auto]">
                     <Select value={condition.field || "from"} onValueChange={(value) => updateCondition(index, { field: value as RuleConditionField })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>{conditionFields.map((value) => <SelectItem key={value} value={value}>{conditionFieldLabels[value]}</SelectItem>)}</SelectContent>
@@ -2609,14 +2609,14 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
               <div className="text-sm">执行以下动作</div>
               <div className="space-y-3">
                 {actions.map((action, index) => (
-                  <div key={index} className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto_auto]">
+                  <div key={index} className={cn("grid gap-3", action.type === "forward" ? "md:grid-cols-[180px_minmax(0,1fr)_auto]" : "md:grid-cols-[180px_minmax(0,1fr)_auto_auto]")}>
                     <Select value={action.type} onValueChange={(value) => updateAction(index, { type: value as MailRuleAction["type"], value: "", labelId: "" })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>{(Object.keys(ruleActionLabels) as MailRuleAction["type"][]).map((value) => <SelectItem key={value} value={value}>{ruleActionLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
                     <RuleActionValue action={action} labels={availableLabels} onChange={(patch) => updateAction(index, patch)} />
                     <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={addAction}><Plus className="h-4 w-4" /></Button>
+                    {action.type !== "forward" && <Button type="button" variant="ghost" size="icon" onClick={addAction}><Plus className="h-4 w-4" /></Button>}
                   </div>
                 ))}
               </div>
@@ -2674,9 +2674,69 @@ function RuleActionValue({ action, labels, onChange }: { action: MailRuleAction;
     )
   }
   if (action.type === "forward") {
-    return <Textarea value={action.value || ""} onChange={(event) => onChange({ value: event.target.value })} className="min-h-[74px] resize-y" placeholder="friend1@example.com, friend2@example.com" />
+    return <RuleForwardTargets value={action.value || ""} onChange={(value) => onChange({ value })} />
   }
   return <Input value="无需填写" readOnly />
+}
+
+function RuleForwardTargets({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [rows, setRows] = React.useState(() => ruleForwardTargetRows(value))
+
+  React.useEffect(() => {
+    const next = ruleForwardTargetRows(value)
+    if (ruleForwardTargetsValue(next) !== ruleForwardTargetsValue(rows)) {
+      setRows(next)
+    }
+  }, [value])
+
+  function commit(next: string[]) {
+    const normalized = next.length > 0 ? next : [""]
+    setRows(normalized)
+    onChange(ruleForwardTargetsValue(normalized))
+  }
+
+  function updateRow(index: number, nextValue: string) {
+    const pasted = ruleForwardTargetRows(nextValue)
+    const next = [...rows]
+    if (pasted.length > 1) {
+      next.splice(index, 1, ...pasted)
+    } else {
+      next[index] = nextValue
+    }
+    commit(next)
+  }
+
+  function addRow(index: number) {
+    const next = [...rows]
+    next.splice(index + 1, 0, "")
+    commit(next)
+  }
+
+  function removeRow(index: number) {
+    const next = rows.filter((_, itemIndex) => itemIndex !== index)
+    commit(next.length > 0 ? next : [""])
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.map((email, index) => (
+        <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_40px_40px]">
+          <Input type="email" value={email} onChange={(event) => updateRow(index, event.target.value)} placeholder={`转发邮箱 ${index + 1}`} />
+          <Button type="button" variant="ghost" size="icon" className="size-10 text-muted-foreground" onClick={() => removeRow(index)} disabled={rows.length === 1 && !email.trim()} aria-label={`移除转发邮箱 ${index + 1}`}><X className="h-4 w-4" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="size-10" onClick={() => addRow(index)} aria-label={`添加转发邮箱 ${index + 2}`}><Plus className="h-4 w-4" /></Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ruleForwardTargetRows(value: string) {
+  const rows = value.split(/[\n\r,，;；]+/).map((item) => item.trim()).filter(Boolean)
+  return rows.length > 0 ? rows : [""]
+}
+
+function ruleForwardTargetsValue(rows: string[]) {
+  return rows.map((item) => item.trim()).filter(Boolean).join(", ")
 }
 
 function RuleCheckbox({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange: (checked: boolean) => void; label: string }) {
