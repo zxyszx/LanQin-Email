@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Repeat2, Search, SendHorizontal, Settings, Share2, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, ChevronDown, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Repeat2, Search, SendHorizontal, Settings, Share2, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -1383,6 +1383,7 @@ function MailboxManagement({
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
   const verifiedEmailItems = forwarding.data?.verifiedEmails || []
   const verifiedEmails = React.useMemo(() => verifiedEmailItems.filter((item) => item.verified).map((item) => item.email), [verifiedEmailItems])
+  const hasPendingVerifiedEmails = verifiedEmailItems.some((item) => !item.verified)
   const mailboxForwards = React.useMemo<Record<string, string[]>>(() => {
     const next: Record<string, string[]> = {}
     for (const rule of forwarding.data?.mailboxRules || []) {
@@ -1400,10 +1401,16 @@ function MailboxManagement({
   const setForwardingCache = React.useCallback((settings: ForwardingSettings) => {
     qc.setQueryData(["forwarding-settings"], settings)
   }, [qc])
+  const refreshForwardingSettings = React.useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["forwarding-settings"] })
+  }, [qc])
   const addVerifiedEmail = useMutation({
     mutationFn: api.addForwardingVerifiedEmail,
     onSuccess: (settings, email) => {
       setForwardingCache(settings)
+      refreshForwardingSettings()
+      window.setTimeout(refreshForwardingSettings, 2500)
+      window.setTimeout(refreshForwardingSettings, 7000)
       addLog("添加验证邮箱", email)
       setVerifiedEmailDraft("")
       const item = settings.verifiedEmails.find((entry) => entry.email.toLowerCase() === email.trim().toLowerCase())
@@ -1418,6 +1425,9 @@ function MailboxManagement({
     mutationFn: ({ id }: { id: string; email: string }) => api.resendForwardingVerifiedEmail(id),
     onSuccess: (settings, item) => {
       setForwardingCache(settings)
+      refreshForwardingSettings()
+      window.setTimeout(refreshForwardingSettings, 2500)
+      window.setTimeout(refreshForwardingSettings, 7000)
       addLog("重发验证邮件", item.email)
       const next = settings.verifiedEmails.find((entry) => entry.id === item.id)
       toast({
@@ -1467,6 +1477,11 @@ function MailboxManagement({
   React.useEffect(() => {
     setAccountForwardTargets(forwardingTargetsFromSettings(forwarding.data))
   }, [forwarding.data?.accountTargetEmail, forwarding.data?.accountTargetEmails])
+  React.useEffect(() => {
+    if (!hasPendingVerifiedEmails) return
+    const timer = window.setInterval(() => { void forwarding.refetch() }, verifiedDialogOpen ? 3000 : 10000)
+    return () => window.clearInterval(timer)
+  }, [forwarding, hasPendingVerifiedEmails, verifiedDialogOpen])
 
   React.useEffect(() => { writeLocalRecord("lanqin:seek-mailbox-notes", notes) }, [notes])
   React.useEffect(() => { writeLocalLogs("lanqin:seek-mailbox-action-logs", logs) }, [logs])
@@ -1972,7 +1987,19 @@ function forwardingTargetsLabel(targets: string[]) {
 }
 
 function ForwardingTargetPicker({ emails, selected, onChange, disabled }: { emails: string[]; selected: string[]; onChange: (targets: string[]) => void; disabled?: boolean }) {
+  const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
   const selectedSet = React.useMemo(() => new Set(selected), [selected])
+  const sortedEmails = React.useMemo(() => {
+    const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true })
+    return Array.from(new Set(emails.map((email) => email.trim()).filter(Boolean))).sort((a, b) => collator.compare(a, b))
+  }, [emails])
+  const selectedEmails = React.useMemo(() => sortedEmails.filter((email) => selectedSet.has(email)), [selectedSet, sortedEmails])
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredEmails = normalizedQuery ? sortedEmails.filter((email) => email.toLowerCase().includes(normalizedQuery)) : sortedEmails
+  const label = selectedEmails.length
+    ? `已选择 ${selectedEmails.length} 个：${selectedEmails.slice(0, 2).join("、")}${selectedEmails.length > 2 ? ` 等 ${selectedEmails.length} 个` : ""}`
+    : "不转发，点击选择邮箱"
   function toggle(email: string, checked: boolean) {
     if (disabled) return
     const next = checked ? Array.from(new Set([...selected, email])) : selected.filter((item) => item !== email)
@@ -1982,24 +2009,64 @@ function ForwardingTargetPicker({ emails, selected, onChange, disabled }: { emai
     return <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">暂无已验证邮箱</div>
   }
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      {emails.map((email) => {
-        const checked = selectedSet.has(email)
-        return (
-          <label
-            key={email}
-            className={cn(
-              "flex min-h-[37px] cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm transition-colors",
-              checked && "border-foreground/20 bg-muted font-semibold text-foreground",
-              disabled && "cursor-not-allowed opacity-60",
+    <div className="relative">
+      <Button
+        type="button"
+        variant="outline"
+        className={cn(
+          "h-[37px] w-full justify-between gap-2 bg-background px-3 text-left text-sm font-normal hover:bg-accent/60 hover:text-foreground",
+          open && "border-primary/35 ring-1 ring-primary/15",
+          disabled && "cursor-not-allowed opacity-60 hover:bg-background",
+        )}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className={cn("min-w-0 flex-1 truncate", selectedEmails.length ? "font-medium text-foreground" : "text-muted-foreground")}>{label}</span>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </Button>
+      {open && (
+        <div className="absolute left-0 right-0 z-30 mt-2 rounded-md border bg-popover p-2 shadow-sm">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-8 pl-8 pr-8 text-sm shadow-none"
+              placeholder="搜索已验证邮箱"
+              autoFocus
+            />
+            {query && (
+              <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-0.5 size-7 text-muted-foreground" onClick={() => setQuery("")}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
             )}
-          >
-            <Checkbox checked={checked} disabled={disabled} onCheckedChange={(value) => toggle(email, value === true)} />
-            <span className="min-w-0 truncate">{email}</span>
-          </label>
-        )
-      })}
-      {selected.length === 0 && <div className="self-center text-sm text-muted-foreground sm:col-span-2">未选择目标，保存后不转发。</div>}
+          </div>
+          <div className="mt-2 max-h-[220px] overflow-y-auto pr-1">
+            <Button type="button" variant="ghost" size="sm" className="mb-1 h-8 px-2 text-xs font-normal text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => onChange([])}>
+              清空选择
+            </Button>
+            <div className="space-y-1">
+              {filteredEmails.map((email) => {
+                const checked = selectedSet.has(email)
+                return (
+                  <label
+                    key={email}
+                    className={cn(
+                      "flex min-h-[36px] cursor-pointer items-center gap-2 rounded-md border border-transparent px-2.5 py-1.5 text-sm transition-colors hover:border-border hover:bg-muted/70",
+                      checked && "border-primary/30 bg-primary/10 font-semibold text-primary",
+                    )}
+                  >
+                    <Checkbox checked={checked} disabled={disabled} onCheckedChange={(value) => toggle(email, value === true)} />
+                    <span className="min-w-0 flex-1 truncate">{email}</span>
+                  </label>
+                )
+              })}
+              {filteredEmails.length === 0 && <div className="px-2 py-8 text-center text-sm text-muted-foreground">没有匹配的已验证邮箱</div>}
+            </div>
+          </div>
+          <div className="mt-2 border-t pt-2 text-xs text-muted-foreground">{selectedEmails.length ? `已选择 ${selectedEmails.length} 个转发目标` : "未选择目标，保存后不转发。"}</div>
+        </div>
+      )}
     </div>
   )
 }
