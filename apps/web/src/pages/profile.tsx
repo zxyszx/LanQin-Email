@@ -369,7 +369,7 @@ export function ProfilePage() {
           <ScrollArea className="min-h-0 flex-1">
             <main className="w-full px-4 pb-10 pt-4">
               <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : "max-w-[1024px]")}>{renderTab()}</div>
+              <div className={cn("w-full", tab === "rules" ? "mr-auto" : "mx-auto", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : tab === "rules" ? "max-w-[1320px]" : "max-w-[1024px]")}>{renderTab()}</div>
             </main>
           </ScrollArea>
         </div>
@@ -379,7 +379,7 @@ export function ProfilePage() {
           <section className="min-w-0 flex-1 overflow-y-auto">
             <main className="px-[24px] pb-12 pt-4">
               <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : "max-w-[1024px]")}>{renderTab()}</div>
+              <div className={cn("w-full", tab === "rules" ? "mr-auto" : "mx-auto", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : tab === "rules" ? "max-w-[1320px]" : "max-w-[1024px]")}>{renderTab()}</div>
             </main>
           </section>
         </div>
@@ -2601,6 +2601,7 @@ type RuleCreatePayload = {
 type RuleConditionField = NonNullable<MailRuleCondition["field"]>
 type RuleConditionOperator = NonNullable<MailRuleCondition["operator"]>
 const conditionFieldLabels: Record<RuleConditionField, string> = { from: "发件人地址", to: "收件人地址", cc: "抄送地址", subject: "邮件主题", body: "邮件正文", attachment: "附件名称", size: "邮件大小", date: "收信日期" }
+const conditionFieldShortLabels: Record<RuleConditionField, string> = { from: "发件人", to: "收件人", cc: "抄送", subject: "邮件主题", body: "body", attachment: "附件", size: "邮件大小", date: "收信日期" }
 const conditionOperatorLabels: Record<RuleConditionOperator, string> = { contains: "包含", "not-contains": "不包含", equals: "等于", "not-equals": "不等于", "starts-with": "开头是", "ends-with": "结尾是", gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于", before: "早于", after: "晚于", on: "当天" }
 const textConditionOperators: RuleConditionOperator[] = ["contains", "not-contains", "equals", "not-equals", "starts-with", "ends-with"]
 const sizeConditionOperators: RuleConditionOperator[] = ["gt", "gte", "lt", "lte", "equals", "not-equals"]
@@ -2611,14 +2612,14 @@ const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移
 
 function RulesSection({ items, mailboxes, labels, open, onOpenChange, onCreate, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onDelete: (id: string) => void; pending: boolean }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex justify-stretch sm:justify-end">
-        <Button className="w-full sm:w-auto" onClick={() => onOpenChange(true)}><Plus className="h-4 w-4" />新建规则</Button>
+        <Button className="h-9 w-full px-4 sm:w-auto" onClick={() => onOpenChange(true)}><Plus className="h-4 w-4" />新建规则</Button>
       </div>
-      <SettingsCard title="规则列表" contentClassName="space-y-2">
-          {items.map((item) => <RuleListItem key={item.id} item={item} mailboxes={mailboxes} onDelete={onDelete} />)}
-          {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" />}
-      </SettingsCard>
+      <div className="space-y-2">
+        {items.map((item) => <RuleListItem key={item.id} item={item} mailboxes={mailboxes} onDelete={onDelete} />)}
+        {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" className="border-solid bg-card" />}
+      </div>
       <RuleDialog open={open} onOpenChange={onOpenChange} mailboxes={mailboxes} labels={labels} pending={pending} onCreate={onCreate} />
     </div>
   )
@@ -2857,15 +2858,20 @@ function RuleCheckbox({ checked, onCheckedChange, label }: { checked: boolean; o
 function RuleListItem({ item, mailboxes, onDelete }: { item: MailRule; mailboxes: Mailbox[]; onDelete: (id: string) => void }) {
   const mailbox = item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const conditionText = ruleConditionSummary(item.conditions, item.fromContains, item.subjectContains)
+  const actionText = item.actions.map(ruleActionSummary).filter(Boolean).join("；") || "无动作"
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40">
-      <div className="min-w-0 space-y-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
-          <span className="truncate">{item.name}</span>
-          <Badge variant={item.enabled ? "default" : "secondary"}>{item.enabled ? "启用" : "停用"}</Badge>
-          {item.actions.map((action, index) => <Badge key={`${action.type}-${index}`} variant="outline">{actionSummary(action)}</Badge>)}
+    <div className="grid min-h-[82px] grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:bg-muted/30">
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="truncate font-semibold text-foreground">{item.name}</span>
+          <span className={cn("shrink-0 text-xs font-medium", item.enabled ? "text-emerald-600" : "text-muted-foreground")}>{item.enabled ? "已启用" : "已停用"}</span>
         </div>
-        <div className="truncate text-xs text-muted-foreground">{mailbox} · {item.matchMode === "any" ? "任一条件" : "所有条件"} · {conditionSummary(item.conditions, item.fromContains, item.subjectContains)}</div>
+        <div className="grid gap-0.5 text-xs leading-5 text-muted-foreground">
+          <p className="truncate"><span className="font-medium text-foreground/80">条件：</span>{conditionText}</p>
+          <p className="truncate"><span className="font-medium text-foreground/80">动作：</span>{actionText}</p>
+        </div>
+        <div className="truncate text-xs text-muted-foreground/80">{mailbox} · {item.matchMode === "any" ? "任一条件" : "所有条件"}</div>
       </div>
       <Button variant="ghost" size="icon" className="size-8 shrink-0 text-destructive" onClick={() => setConfirmOpen(true)}><Trash2 className="h-4 w-4" /></Button>
       <ConfirmDialog open={confirmOpen} title="删除收件规则？" description={`规则“${item.name}”将不再处理后续邮件。`} confirmText="删除规则" destructive onOpenChange={setConfirmOpen} onConfirm={() => { onDelete(item.id); setConfirmOpen(false) }} />
@@ -2904,24 +2910,25 @@ function conditionPlaceholder(field?: MailRuleCondition["field"]) {
   return "输入值"
 }
 
-function conditionSummary(conditions: MailRuleCondition[] = [], fromContains = "", subjectContains = "") {
+function ruleConditionSummary(conditions: MailRuleCondition[] = [], fromContains = "", subjectContains = "") {
   const items = conditions.length > 0 ? conditions : [fromContains ? { field: "from", operator: "contains", value: fromContains } as MailRuleCondition : undefined, subjectContains ? { field: "subject", operator: "contains", value: subjectContains } as MailRuleCondition : undefined].filter(Boolean) as MailRuleCondition[]
-  return items.map(conditionItemSummary).join("；") || "无条件"
+  return items.map(ruleConditionItemSummary).join("；") || "无条件"
 }
 
-function conditionItemSummary(item: MailRuleCondition): string {
+function ruleConditionItemSummary(item: MailRuleCondition): string {
   if (item.conditions?.length) {
     const mode = item.matchMode === "any" ? "任一" : "全部"
-    return `${mode}(${item.conditions.map(conditionItemSummary).join("；")})`
+    return `${mode}(${item.conditions.map(ruleConditionItemSummary).join("；")})`
   }
   const field = item.field || "from"
   const operator = item.operator || defaultConditionOperator(field)
-  return `${conditionFieldLabels[field]} ${conditionOperatorLabels[operator]} ${item.value || ""}`
+  const value = item.value ? `"${item.value}"` : ""
+  return `${conditionFieldShortLabels[field]}${conditionOperatorLabels[operator]}${value}`
 }
 
-function actionSummary(action: MailRuleAction) {
-  if (action.type === "label") return `${ruleActionLabels[action.type]}${action.value ? `：${action.value}` : ""}`
-  if (action.type === "move") return `${ruleActionLabels[action.type]}：${folderLabel(action.value || "Archive")}`
+function ruleActionSummary(action: MailRuleAction) {
+  if (action.type === "label") return `${ruleActionLabels[action.type]}${action.value ? `："${action.value}"` : ""}`
+  if (action.type === "move") return `${ruleActionLabels[action.type]}："${folderLabel(action.value || "Archive")}"`
   if (action.type === "forward") return `${ruleActionLabels[action.type]}${action.value ? `：${action.value}` : ""}`
   return ruleActionLabels[action.type]
 }
