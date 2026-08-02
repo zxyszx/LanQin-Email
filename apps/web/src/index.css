@@ -90,7 +90,7 @@
 
   .mail-content-grid {
     display: grid;
-    grid-template-columns: minmax(420px, 528px) minmax(0, 1fr);
+    grid-template-columns: 528px minmax(0, 1fr);
   }
 
   .mail-list-pane,
@@ -101,6 +101,8 @@
 
   .mail-list-pane {
     border-right: 1px solid hsl(var(--border));
+    width: 528px;
+    max-width: 528px;
   }
 
   @media (max-width: 767px) {
@@ -110,6 +112,8 @@
 
     .mail-list-pane {
       border-right: 0;
+      width: auto;
+      max-width: none;
     }
   }
 
