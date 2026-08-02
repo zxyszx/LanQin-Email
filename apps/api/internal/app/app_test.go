@@ -1379,6 +1379,34 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 		t.Fatalf("mailboxes were not bound to one user: primary=%s secondary=%s", primary.UserID, secondary.UserID)
 	}
 
+	ctx := context.Background()
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	primaryInboxID, err := a.ensureFolder(ctx, primary.ID, "Inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryArchiveID, err := a.ensureFolder(ctx, primary.ID, "Archive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondaryInboxID, err := a.ensureFolder(ctx, secondary.ID, "Inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertMessage := func(id, mailboxID, folderID, subject string, read int) {
+		t.Helper()
+		if _, err := a.db.ExecContext(ctx, `INSERT INTO messages(id,mailbox_id,folder_id,recipient_addr,message_uid,message_id,subject,from_addr,from_name,to_addrs,cc_addrs,bcc_addrs,sent_at,received_at,snippet,body_text,body_html,is_read,is_starred,has_attachments,size_bytes,created_at,updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, mailboxID, folderID, "", id+"-uid", "<"+id+"@example.test>", subject, "sender@example.test", "", jsonEncode([]string{"recipient@example.test"}), "[]", "[]", now, now, subject, "", "", read, 0, 0, 0, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insertMessage("msg_multi_primary_unread_1", primary.ID, primaryInboxID, "primary unread one", 0)
+	insertMessage("msg_multi_primary_unread_2", primary.ID, primaryInboxID, "primary unread two", 0)
+	insertMessage("msg_multi_primary_read", primary.ID, primaryInboxID, "primary read", 1)
+	insertMessage("msg_multi_primary_archived", primary.ID, primaryArchiveID, "primary archived unread", 0)
+	insertMessage("msg_multi_secondary_unread", secondary.ID, secondaryInboxID, "secondary unread", 0)
+
 	userClient := &testClient{t: t, server: ts}
 	if code := userClient.do("POST", "/api/auth/login", map[string]string{"email": primary.Address, "password": "Password123!"}, &login); code != http.StatusOK {
 		t.Fatalf("user login=%d", code)
@@ -1388,6 +1416,13 @@ func TestUserCanSelectMultipleMailboxes(t *testing.T) {
 	}
 	if code := userClient.do("GET", "/api/mail/mailboxes", nil, &mine); code != http.StatusOK || len(mine.Items) != 2 {
 		t.Fatalf("my mailboxes code=%d items=%d", code, len(mine.Items))
+	}
+	unreadByAddress := map[string]int{}
+	for _, item := range mine.Items {
+		unreadByAddress[item.Address] = item.UnreadCount
+	}
+	if unreadByAddress[primary.Address] != 2 || unreadByAddress[secondary.Address] != 1 {
+		t.Fatalf("mailbox unread counts=%+v, want %s=2 %s=1", unreadByAddress, primary.Address, secondary.Address)
 	}
 	if code := userClient.do("GET", "/api/mail/folders?mailboxId="+secondary.ID, nil, nil); code != http.StatusOK {
 		t.Fatalf("folders for selected mailbox code=%d", code)

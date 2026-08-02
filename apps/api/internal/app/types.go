@@ -69,6 +69,7 @@ type Mailbox struct {
 	DisplayName string    `json:"displayName"`
 	QuotaMB     int       `json:"quotaMb"`
 	Status      string    `json:"status"`
+	UnreadCount int       `json:"unreadCount"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 

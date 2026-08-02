@@ -59,10 +59,14 @@ type storedMessage struct {
 
 func (a *App) handleMyMailboxes(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
-	rows, err := a.db.QueryContext(r.Context(), `SELECT mb.id,mb.user_id,mb.domain_id,mb.local_part,mb.address,mb.display_name,mb.quota_mb,mb.status,mb.created_at
+	rows, err := a.db.QueryContext(r.Context(), `SELECT mb.id,mb.user_id,mb.domain_id,mb.local_part,mb.address,mb.display_name,mb.quota_mb,mb.status,mb.created_at,
+		COALESCE(SUM(CASE WHEN lower(f.name)='inbox' AND m.is_read=0 THEN 1 ELSE 0 END),0) AS unread_count
 		FROM mailboxes mb
 		JOIN domains d ON d.id=mb.domain_id
+		LEFT JOIN folders f ON f.mailbox_id=mb.id
+		LEFT JOIN messages m ON m.folder_id=f.id
 		WHERE mb.user_id=? AND mb.status='active' AND d.status='active'
+		GROUP BY mb.id,mb.user_id,mb.domain_id,mb.local_part,mb.address,mb.display_name,mb.quota_mb,mb.status,mb.created_at
 		ORDER BY mb.address`, user.ID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load mailboxes")
@@ -73,7 +77,7 @@ func (a *App) handleMyMailboxes(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m Mailbox
 		var created string
-		if err := rows.Scan(&m.ID, &m.UserID, &m.DomainID, &m.LocalPart, &m.Address, &m.DisplayName, &m.QuotaMB, &m.Status, &created); err != nil {
+		if err := rows.Scan(&m.ID, &m.UserID, &m.DomainID, &m.LocalPart, &m.Address, &m.DisplayName, &m.QuotaMB, &m.Status, &created, &m.UnreadCount); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to scan mailboxes")
 			return
 		}

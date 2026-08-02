@@ -649,6 +649,8 @@ export function MailPage() {
   const emptyMessage = getEmptyMessage(mailView, mailView === "external" ? externalFolder : folder, allMessages.length)
   const visibleMessageIds = visibleMessages.map((message) => message.id)
   const selectedCountOnPage = compactSelectedIds.filter((id) => visibleMessageIds.includes(id)).length
+  const selectedMessagesOnPage = visibleMessages.filter((message) => compactSelectedIds.includes(message.id))
+  const bulkReadAction: BulkAction = selectedMessagesOnPage.some((message) => !message.isRead) ? "read" : "unread"
   const compactAllSelected = visibleMessageIds.length > 0 && selectedCountOnPage === visibleMessageIds.length
   const compactSomeSelected = selectedCountOnPage > 0 && !compactAllSelected
   const hasMoreMessages = mailView === "external" ? !!externalMessages.hasNextPage : !!messages.hasNextPage
@@ -699,7 +701,7 @@ export function MailPage() {
       } else if (action === "delete") {
         await Promise.all(ids.map((id) => api.delete(id)))
       } else {
-        const target = action === "archive" ? "Archive" : action === "trash" ? "Trash" : "Spam"
+        const target = action === "archive" ? "Archive" : action === "inbox" ? "Inbox" : action === "trash" ? "Trash" : "Spam"
         await Promise.all(ids.map((id) => api.move(id, target)))
       }
       if (selectedId && ids.includes(selectedId)) setSelectedId(null)
@@ -709,6 +711,23 @@ export function MailPage() {
       toast({ title: `已处理 ${ids.length} 封邮件` })
     } catch (error) {
       toast({ title: "批量操作失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    } finally {
+      setBulkPending(false)
+    }
+  }
+  async function runBulkMoveToFolder(folderName: string) {
+    if (!canOrganizeMail) return
+    const ids = compactSelectedIds.filter((id) => visibleMessageIds.includes(id))
+    if (ids.length === 0) return
+    setBulkPending(true)
+    try {
+      await Promise.all(ids.map((id) => api.move(id, folderName)))
+      if (selectedId && ids.includes(selectedId)) setSelectedId(null)
+      setCompactSelectedIds([])
+      await refreshMailData()
+      toast({ title: folderName === "Inbox" ? `已将 ${ids.length} 封邮件移回收件箱` : `已移动 ${ids.length} 封邮件` })
+    } catch (error) {
+      toast({ title: "批量移动失败", description: error instanceof Error ? error.message : "请稍后重试" })
     } finally {
       setBulkPending(false)
     }
@@ -1136,7 +1155,8 @@ export function MailPage() {
                     onClick={() => activateSidebarItem(item)}
                     >
                       {item.icon}
-                      {!sidebarCollapsed && <span>{item.label}</span>}
+                      {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+                      {!sidebarCollapsed && <UnreadBadge count={item.count} tone="muted" />}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
               ))}
@@ -1242,8 +1262,8 @@ export function MailPage() {
                     onClick={() => activateSidebarItem(item)}
                   >
                     {item.icon}
-                    {!sidebarCollapsed && <span>{item.label}</span>}
-                    {!sidebarCollapsed && item.count > 0 && <Badge variant="secondary" className="ml-auto h-5 min-w-5 rounded-full px-1.5 text-xs">{item.count}</Badge>}
+                    {!sidebarCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+                    {!sidebarCollapsed && <UnreadBadge count={item.count} tone="muted" />}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -1489,12 +1509,12 @@ export function MailPage() {
           {selectedCountOnPage > 0 && canOrganizeMail && (
             <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5">
               <span className="min-w-0 truncate text-[13px] text-muted-foreground">已选 {selectedCountOnPage} 封</span>
-              <BulkActionToolbar pending={bulkPending} onAction={runBulkAction} />
+              <BulkActionToolbar pending={bulkPending} currentFolder={folder} folders={folders.data?.items || []} readAction={bulkReadAction} onAction={runBulkAction} onMoveToFolder={runBulkMoveToFolder} />
             </div>
           )}
           <ScrollArea className="min-h-0 flex-1">
             {(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && <MessageSkeleton />}
-            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} canOrganize={canOrganizeMail} />)}
+            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail} />)}
             {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
             {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && hasMoreMessages && (
               <div className="border-b p-4 text-center">
@@ -2254,39 +2274,41 @@ function datetimeLocalToISO(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString()
 }
 
-type BulkAction = "read" | "unread" | "star" | "unstar" | "archive" | "trash" | "spam" | "delete"
+type BulkAction = "read" | "unread" | "star" | "unstar" | "archive" | "inbox" | "trash" | "spam" | "delete"
 
-function BulkActionToolbar({ pending, onAction }: { pending: boolean; onAction: (action: BulkAction) => void }) {
+function BulkActionToolbar({ pending, currentFolder, folders = [], readAction = "read", onAction, onMoveToFolder }: { pending: boolean; currentFolder?: string; folders?: MailFolder[]; readAction?: "read" | "unread"; onAction: (action: BulkAction) => void; onMoveToFolder?: (folderName: string) => void }) {
   const buttonClass = "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+  const archiveAction: BulkAction = currentFolder === "Archive" ? "inbox" : "archive"
+  const archiveLabel = currentFolder === "Archive" ? "移回收件箱" : "归档"
+  const movableFolders = folders.filter((folder) => folder.name !== currentFolder && folder.name !== "Drafts")
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("read")} title="标为已读" aria-label="标为已读">
-        <MailCheck className="h-3.5 w-3.5" />
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction(readAction)} title={readAction === "read" ? "标为已读" : "标为未读"} aria-label={readAction === "read" ? "标为已读" : "标为未读"}>
+        {readAction === "read" ? <MailCheck className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
       </Button>
-      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("unread")} title="标为未读" aria-label="标为未读">
-        <Mail className="h-3.5 w-3.5" />
-      </Button>
-      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("star")} title="添加星标" aria-label="添加星标">
-        <Star className="h-3.5 w-3.5" />
-      </Button>
-      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("archive")} title="归档" aria-label="归档">
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction(archiveAction)} title={archiveLabel} aria-label={archiveLabel}>
         <Archive className="h-3.5 w-3.5" />
       </Button>
-      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("trash")} title="移入已删除" aria-label="移入已删除">
+      {onMoveToFolder && movableFolders.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className={buttonClass} disabled={pending} title="移动到文件夹" aria-label="移动到文件夹">
+              <Folder className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            {movableFolders.map((folder) => (
+              <DropdownMenuItem key={folder.id} onSelect={() => onMoveToFolder(folder.name)}>
+                {folderIcons[folder.role] || <Folder className="h-4 w-4" />}
+                <span className="min-w-0 flex-1 truncate">{folderLabels[folder.name] || folder.name}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      <Button type="button" variant="ghost" size="icon" className={cn(buttonClass, "text-destructive hover:bg-destructive/10 hover:text-destructive")} disabled={pending} onClick={() => onAction("trash")} title="移入已删除" aria-label="移入已删除">
         <Trash2 className="h-3.5 w-3.5" />
       </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className={buttonClass} disabled={pending} title="更多操作" aria-label="更多操作">
-            <Ellipsis className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40">
-          <DropdownMenuItem onSelect={() => onAction("unstar")}>取消星标</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onAction("spam")}>移入垃圾邮件</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onAction("delete")} className="text-destructive">彻底删除</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   )
 }
@@ -3060,11 +3082,23 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   )
 }
 
+function UnreadBadge({ count, tone = "danger" }: { count?: number; tone?: "danger" | "muted" }) {
+  if (!count || count <= 0) return null
+  return (
+    <span className={cn(
+      "ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-none",
+      tone === "danger" ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground"
+    )}>
+      {count > 99 ? "99+" : count}
+    </span>
+  )
+}
+
 function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMailbox, fallbackAddress, unreadCount, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; selectedMailboxId: string; selectedMailbox?: Mailbox; fallbackAddress?: string; unreadCount: number; onSelect: (mailboxId: string) => void }) {
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
   const displayAddress = isAllSelected ? "全部邮箱" : selectedMailbox?.address || fallbackAddress || "选择邮箱"
-  const displayUnreadCount = Math.min(unreadCount, 99)
+  const selectedUnreadCount = isAllSelected ? unreadCount : selectedMailbox?.unreadCount || 0
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
   const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
   const filteredMailboxes = React.useMemo(() => {
@@ -3082,17 +3116,13 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
           {!collapsed && (
             <>
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{displayAddress}</span>
-              {isAllSelected && unreadCount > 0 && (
-                <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
-                  {unreadCount > 99 ? "99+" : displayUnreadCount}
-                </span>
-              )}
+              <UnreadBadge count={selectedUnreadCount} />
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </>
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[220px] p-1">
+      <DropdownMenuContent align="start" className="w-[204px] max-w-[calc(100vw-32px)] p-1">
         {mailboxes.length > 0 && (
           <div className="px-1 pb-1">
             <Input
@@ -3110,17 +3140,14 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
           <DropdownMenuItem onSelect={() => onSelect("all")} className={cn("h-8 gap-2 rounded-sm px-2 text-[13px] font-normal", isAllSelected && "bg-accent text-accent-foreground")}>
             <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">全部邮箱</span>
-            {unreadCount > 0 && (
-              <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
-                {unreadCount > 99 ? "99+" : displayUnreadCount}
-              </span>
-            )}
+            <UnreadBadge count={unreadCount} />
           </DropdownMenuItem>
         )}
         {filteredMailboxes.map((mailbox) => (
           <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)} className={cn("h-8 min-w-0 gap-2 rounded-sm px-2 text-[13px] font-normal", !isAllSelected && selectedMailbox?.id === mailbox.id && "bg-accent text-accent-foreground")}>
             <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate" title={mailbox.address}>{mailbox.address}</span>
+            <UnreadBadge count={mailbox.unreadCount} />
           </DropdownMenuItem>
         ))}
         {mailboxes.length > 0 && !showAllMailboxOption && filteredMailboxes.length === 0 && (
@@ -3334,6 +3361,9 @@ function MessageRow({
   onClick,
   onContextMenu,
   onStar,
+  onArchive,
+  onTrash,
+  onToggleRead,
   canOrganize,
 }: {
   message: MailMessage
@@ -3344,12 +3374,18 @@ function MessageRow({
   onClick: () => void
   onContextMenu: (event: React.MouseEvent) => void
   onStar: () => void
+  onArchive: () => void
+  onTrash: () => void
+  onToggleRead: () => void
   canOrganize: boolean
 }) {
   const visibleLabels = (message.labels || []).slice(0, 2)
   const hiddenLabelCount = Math.max((message.labels?.length || 0) - visibleLabels.length, 0)
   const senderName = senderDisplayName(message)
-  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-3 py-2.5 transition-colors hover:bg-accent/60", active && "bg-accent", !message.isRead && "font-semibold")}>
+  const quickActionsVisible = checked || active
+  const quickButtonClass = "h-6 w-6 text-muted-foreground hover:bg-accent hover:text-foreground"
+  const archiveLabel = message.folder === "Archive" ? "移回收件箱" : "归档"
+  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("group cursor-pointer border-b px-3 py-2.5 transition-colors hover:bg-accent/60", active && "bg-accent", checked && "bg-accent/70", !message.isRead && "font-semibold")}>
     <div className="flex gap-2.5">
       <Checkbox
         aria-label="选择邮件"
@@ -3361,7 +3397,20 @@ function MessageRow({
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5">
+            {canOrganize && (
+              <div className={cn("hidden shrink-0 items-center gap-0.5", quickActionsVisible ? "flex" : "group-hover:flex")}>
+                <Button type="button" variant="ghost" size="icon" aria-label={archiveLabel} title={archiveLabel} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onArchive() }}>
+                  <Archive className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" aria-label="移入已删除" title="移入已删除" className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onTrash() }}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" aria-label={message.isRead ? "标为未读" : "标为已读"} title={message.isRead ? "标为未读" : "标为已读"} className={quickButtonClass} onClick={(event) => { event.stopPropagation(); onToggleRead() }}>
+                  {message.isRead ? <Mail className="h-3.5 w-3.5" /> : <MailCheck className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            )}
             {canOrganize && <Button
               type="button"
               variant="ghost"
@@ -3372,7 +3421,7 @@ function MessageRow({
             >
               <Star className={cn("h-3.5 w-3.5", message.isStarred && "fill-yellow-400 text-yellow-500")} />
             </Button>}
-            <div className="text-xs text-muted-foreground">{formatDate(message.receivedAt)}</div>
+            <div className={cn("text-xs text-muted-foreground", canOrganize && (quickActionsVisible ? "hidden" : "group-hover:hidden"))}>{formatDate(message.receivedAt)}</div>
           </div>
         </div>
         <div className="mb-1 flex min-w-0 items-center gap-2">
