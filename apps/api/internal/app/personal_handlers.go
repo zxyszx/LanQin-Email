@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -641,6 +642,7 @@ func (a *App) handleDeleteBlockedSender(w http.ResponseWriter, r *http.Request) 
 func (a *App) handleMailStats(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
+	rangeDays := mailStatsRangeDays(r.URL.Query().Get("days"))
 	args := []any{user.ID}
 	where := `mb.user_id=?`
 	if mailboxID != "" && !isAllMailboxID(mailboxID) {
@@ -651,20 +653,67 @@ func (a *App) handleMailStats(w http.ResponseWriter, r *http.Request) {
 		where += ` AND mb.id=?`
 		args = append(args, mailboxID)
 	}
-	stats := MailStats{ByFolder: []MailStatsFolderCount{}}
-	row := a.db.QueryRowContext(r.Context(), `SELECT COUNT(m.id),COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN m.is_starred=1 THEN 1 ELSE 0 END),0),COALESCE(SUM(m.size_bytes),0)
-		FROM mailboxes mb LEFT JOIN messages m ON m.mailbox_id=mb.id WHERE `+where, args...)
-	if err := row.Scan(&stats.TotalMessages, &stats.UnreadMessages, &stats.StarredMessages, &stats.StorageBytes); err != nil {
+	now := a.now().UTC()
+	stats := MailStats{
+		ByFolder:     []MailStatsFolderCount{},
+		Trend:        emptyMailStatsTrend(now, rangeDays),
+		Distribution: []MailStatsDistributionItem{},
+		TopContacts:  []MailStatsContact{},
+	}
+	row := a.db.QueryRowContext(r.Context(), `SELECT COUNT(m.id),
+			COALESCE(SUM(CASE WHEN f.role NOT IN ('sent','drafts') THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN f.role='sent' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN m.is_read=0 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN f.role='drafts' THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN m.is_starred=1 THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(m.size_bytes),0)
+		FROM mailboxes mb
+		LEFT JOIN messages m ON m.mailbox_id=mb.id
+		LEFT JOIN folders f ON f.id=m.folder_id
+		WHERE `+where, args...)
+	if err := row.Scan(&stats.TotalMessages, &stats.TotalIncoming, &stats.TotalOutgoing, &stats.UnreadMessages, &stats.DraftMessages, &stats.StarredMessages, &stats.StorageBytes); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load stats")
 		return
+	}
+	if stats.TotalMessages > 0 {
+		stats.AverageMessageBytes = stats.StorageBytes / stats.TotalMessages
 	}
 	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(a.id),COALESCE(SUM(a.size_bytes),0) FROM attachments a JOIN messages m ON m.id=a.message_id JOIN mailboxes mb ON mb.id=m.mailbox_id WHERE `+where, args...).Scan(&stats.AttachmentCount, &stats.AttachmentBytes); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load attachment stats")
 		return
 	}
+	var attachmentMessageCount int64
+	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(m.id) FROM mailboxes mb JOIN messages m ON m.mailbox_id=mb.id WHERE `+where+` AND m.has_attachments=1`, args...).Scan(&attachmentMessageCount); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load attachment message stats")
+		return
+	}
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	todayArgs := append(append([]any{}, args...), todayStart)
+	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(m.id)
+		FROM mailboxes mb JOIN messages m ON m.mailbox_id=mb.id JOIN folders f ON f.id=m.folder_id
+		WHERE `+where+` AND f.role='sent' AND m.sent_at>=?`, todayArgs...).Scan(&stats.TodayOutgoing); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load today stats")
+		return
+	}
+	if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(sq.id)
+		FROM send_queue sq JOIN mailboxes mb ON mb.id=sq.mailbox_id
+		WHERE `+where+` AND sq.status='failed'`, args...).Scan(&stats.FailedSends); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load send queue stats")
+		return
+	}
 	if mailboxID != "" && !isAllMailboxID(mailboxID) {
 		var quotaMB int64
 		if err := a.db.QueryRowContext(r.Context(), `SELECT quota_mb FROM mailboxes WHERE id=? AND user_id=?`, mailboxID, user.ID).Scan(&quotaMB); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to load quota")
+			return
+		}
+		stats.QuotaBytes = quotaMB * 1024 * 1024
+		if stats.QuotaBytes > 0 {
+			stats.QuotaUsedPct = float64(stats.StorageBytes) / float64(stats.QuotaBytes) * 100
+		}
+	} else {
+		var quotaMB int64
+		if err := a.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(mb.quota_mb),0) FROM mailboxes mb WHERE `+where, args...).Scan(&quotaMB); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to load quota")
 			return
 		}
@@ -689,7 +738,163 @@ func (a *App) handleMailStats(w http.ResponseWriter, r *http.Request) {
 		}
 		stats.ByFolder = append(stats.ByFolder, item)
 	}
+	if err := rows.Err(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to scan folder stats")
+		return
+	}
+	stats.Distribution = mailStatsDistribution(stats.ByFolder, attachmentMessageCount, stats.StarredMessages)
+	if err := a.loadMailStatsTrend(r.Context(), where, args, rangeDays, stats.Trend); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load trend stats")
+		return
+	}
+	topContacts, err := a.mailStatsTopContacts(r.Context(), where, args)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load contact stats")
+		return
+	}
+	stats.TopContacts = topContacts
 	respondJSON(w, http.StatusOK, stats)
+}
+
+func mailStatsRangeDays(raw string) int {
+	days, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || days <= 0 {
+		return 30
+	}
+	switch days {
+	case 7, 30, 90, 365:
+		return days
+	default:
+		if days < 7 {
+			return 7
+		}
+		if days > 365 {
+			return 365
+		}
+		return days
+	}
+}
+
+func emptyMailStatsTrend(now time.Time, days int) []MailStatsTrendPoint {
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	points := make([]MailStatsTrendPoint, 0, days)
+	for i := days - 1; i >= 0; i-- {
+		points = append(points, MailStatsTrendPoint{Date: today.AddDate(0, 0, -i).Format("2006-01-02")})
+	}
+	return points
+}
+
+func mailStatsDistribution(rows []MailStatsFolderCount, attachmentMessages, starred int64) []MailStatsDistributionItem {
+	roles := map[string]int64{}
+	for _, row := range rows {
+		roles[strings.ToLower(row.Role)] += row.Count
+	}
+	return []MailStatsDistributionItem{
+		{Key: "inbox", Label: "收件箱", Count: roles["inbox"]},
+		{Key: "archive", Label: "已归档", Count: roles["archive"]},
+		{Key: "spam", Label: "垃圾邮件", Count: roles["spam"]},
+		{Key: "trash", Label: "已删除", Count: roles["trash"]},
+		{Key: "attachments", Label: "有附件", Count: attachmentMessages},
+		{Key: "starred", Label: "已加旗标", Count: starred},
+	}
+}
+
+func (a *App) loadMailStatsTrend(ctx context.Context, where string, args []any, days int, trend []MailStatsTrendPoint) error {
+	start := ""
+	if len(trend) > 0 {
+		start = trend[0].Date + "T00:00:00Z"
+	}
+	queryArgs := append(append([]any{}, args...), start)
+	rows, err := a.db.QueryContext(ctx, `SELECT substr(CASE WHEN f.role='sent' THEN m.sent_at ELSE m.received_at END, 1, 10),
+			COALESCE(SUM(CASE WHEN f.role='sent' THEN 0 ELSE 1 END),0),
+			COALESCE(SUM(CASE WHEN f.role='sent' THEN 1 ELSE 0 END),0)
+		FROM mailboxes mb JOIN messages m ON m.mailbox_id=mb.id JOIN folders f ON f.id=m.folder_id
+		WHERE `+where+` AND f.role<>'drafts' AND (CASE WHEN f.role='sent' THEN m.sent_at ELSE m.received_at END)>=?
+		GROUP BY 1`, queryArgs...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byDate := map[string]*MailStatsTrendPoint{}
+	for i := range trend {
+		byDate[trend[i].Date] = &trend[i]
+	}
+	for rows.Next() {
+		var date string
+		var incoming, outgoing int64
+		if err := rows.Scan(&date, &incoming, &outgoing); err != nil {
+			return err
+		}
+		if point := byDate[date]; point != nil {
+			point.Incoming = incoming
+			point.Outgoing = outgoing
+		}
+	}
+	return rows.Err()
+}
+
+func (a *App) mailStatsTopContacts(ctx context.Context, where string, args []any) ([]MailStatsContact, error) {
+	rows, err := a.db.QueryContext(ctx, `SELECT f.role,m.from_addr,m.to_addrs,m.cc_addrs,m.bcc_addrs
+		FROM mailboxes mb JOIN messages m ON m.mailbox_id=mb.id JOIN folders f ON f.id=m.folder_id
+		WHERE `+where+`
+		ORDER BY m.received_at DESC LIMIT 2000`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int64{}
+	for rows.Next() {
+		var role, from, toJSON, ccJSON, bccJSON string
+		if err := rows.Scan(&role, &from, &toJSON, &ccJSON, &bccJSON); err != nil {
+			return nil, err
+		}
+		if strings.EqualFold(role, "sent") {
+			for _, email := range append(append(mailStatsEmailList(toJSON), mailStatsEmailList(ccJSON)...), mailStatsEmailList(bccJSON)...) {
+				if email != "" {
+					counts[email]++
+				}
+			}
+			continue
+		}
+		if email := normalizeEmail(from); email != "" && strings.Contains(email, "@") {
+			counts[email]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	items := make([]MailStatsContact, 0, len(counts))
+	for email, count := range counts {
+		items = append(items, MailStatsContact{Email: email, Count: count})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count == items[j].Count {
+			return items[i].Email < items[j].Email
+		}
+		return items[i].Count > items[j].Count
+	})
+	if len(items) > 10 {
+		items = items[:10]
+	}
+	return items, nil
+}
+
+func mailStatsEmailList(raw string) []string {
+	var values []string
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		email := normalizeEmail(value)
+		if email == "" || !strings.Contains(email, "@") || seen[email] {
+			continue
+		}
+		seen[email] = true
+		out = append(out, email)
+	}
+	return out
 }
 
 func (a *App) handleMailCleanup(w http.ResponseWriter, r *http.Request) {

@@ -5289,11 +5289,23 @@ func TestMailStatsQuotaAndCleanupIsolation(t *testing.T) {
 		t.Fatalf("alice login code=%d", code)
 	}
 	var stats MailStats
-	if code := alice.do("GET", "/api/me/stats?mailboxId="+aliceMB.ID, nil, &stats); code != http.StatusOK {
+	if code := alice.do("GET", "/api/me/stats?mailboxId="+aliceMB.ID+"&days=7", nil, &stats); code != http.StatusOK {
 		t.Fatalf("stats code=%d stats=%+v", code, stats)
 	}
 	if stats.QuotaBytes != int64(aliceMB.QuotaMB)*1024*1024 || stats.AttachmentBytes == 0 || stats.QuotaUsedPct <= 0 {
 		t.Fatalf("stats quota/attachment not populated: %+v", stats)
+	}
+	if stats.TotalIncoming != 1 || stats.TotalOutgoing != 0 || stats.AverageMessageBytes <= 0 {
+		t.Fatalf("stats message totals not populated: %+v", stats)
+	}
+	if len(stats.Trend) != 7 || stats.Trend[len(stats.Trend)-1].Incoming != 1 {
+		t.Fatalf("stats trend not populated: %+v", stats.Trend)
+	}
+	if !mailStatsDistributionHas(stats.Distribution, "trash", 1) || !mailStatsDistributionHas(stats.Distribution, "attachments", 1) {
+		t.Fatalf("stats distribution not populated: %+v", stats.Distribution)
+	}
+	if len(stats.TopContacts) == 0 || stats.TopContacts[0].Email != "sender@example.test" || stats.TopContacts[0].Count != 1 {
+		t.Fatalf("stats top contacts not populated: %+v", stats.TopContacts)
 	}
 	var cleanup struct {
 		OK       bool  `json:"ok"`
@@ -5315,6 +5327,15 @@ func TestMailStatsQuotaAndCleanupIsolation(t *testing.T) {
 	if aliceUser.ID == "" || bobUser.ID == "" {
 		t.Fatal("test users were not created")
 	}
+}
+
+func mailStatsDistributionHas(items []MailStatsDistributionItem, key string, count int64) bool {
+	for _, item := range items {
+		if item.Key == key && item.Count == count {
+			return true
+		}
+	}
+	return false
 }
 
 func mustDefaultDomainID(t *testing.T, a *App) string {

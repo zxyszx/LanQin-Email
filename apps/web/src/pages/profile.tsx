@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, BookOpen, ChevronDown, Clock3, Code2, Contact, Copy, ExternalLink, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
+import { Archive, ArrowLeft, BarChart3, Ban, BookOpen, ChevronDown, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Star, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -62,6 +62,7 @@ export function ProfilePage() {
   const passwordFormRef = React.useRef<HTMLFormElement>(null)
   const twoFactorFormRef = React.useRef<HTMLFormElement>(null)
   const [mailboxId, setMailboxId] = React.useState(() => localStorage.getItem("lanqin:selected-mailbox") || "")
+  const [statsRangeDays, setStatsRangeDays] = React.useState(30)
   const [darkMode, setDarkMode] = React.useState(getInitialTheme)
   const [displayMode, setDisplayMode] = useDisplayMode()
   const [blockedMailboxId, setBlockedMailboxId] = React.useState("all")
@@ -120,7 +121,7 @@ export function ProfilePage() {
   const externalRunFolders = useQuery({ queryKey: ["external-imap-run-folders", externalRunAccountId], queryFn: () => api.externalFolders(externalRunAccountId), enabled: !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
   const externalSyncRuns = useQuery({ queryKey: ["external-imap-sync-runs", externalRunAccountId], queryFn: () => api.externalImapSyncRuns(externalRunAccountId), enabled: !!externalRunAccountId && !!selectedExternalRunAccount && canAccessMail && externalImapEnabled })
   const labels = useQuery({ queryKey: ["labels", activeMailboxId], queryFn: () => api.labels(activeMailboxId), enabled: !!activeMailboxId && (canReadMail || canManageLabels || canManageRules) })
-  const stats = useQuery({ queryKey: ["mail-stats", activeMailboxId], queryFn: () => api.mailStats(activeMailboxId), enabled: !!activeMailboxId && canViewStats })
+  const stats = useQuery({ queryKey: ["mail-stats", activeMailboxId, statsRangeDays], queryFn: () => api.mailStats(activeMailboxId, statsRangeDays), enabled: !!activeMailboxId && canViewStats })
 
   const profile = useMutation({
     mutationFn: (form: FormData) => api.updateProfile({ displayName: String(form.get("displayName") || "") }),
@@ -454,7 +455,7 @@ export function ProfilePage() {
     if (tab === "cleanupQueue") return <CleanupQueueSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} />
     if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending} />
     if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? stats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
-    if (tab === "stats") return <StatsSection stats={stats.data} mailbox={selectedMailbox} onRefresh={() => stats.refetch()} />
+    if (tab === "stats") return <StatsSection stats={stats.data} mailbox={selectedMailbox} rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} onRefresh={() => stats.refetch()} />
     if (tab === "feedback") return <FeedbackSection />
     if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
     return null
@@ -2971,27 +2972,41 @@ function BlockedSection({ items, mailboxes, mailboxId, spamCount, onMailboxChang
   )
 }
 
-function StatsSection({ stats, mailbox, onRefresh }: { stats?: MailStats; mailbox?: Mailbox; onRefresh: () => void }) {
-  const [range, setRange] = React.useState("30")
+function StatsSection({ stats, mailbox, rangeDays, onRangeChange, onRefresh }: { stats?: MailStats; mailbox?: Mailbox; rangeDays: number; onRangeChange: (days: number) => void; onRefresh: () => void }) {
   const quotaLabel = stats?.quotaBytes ? `${formatBytes(stats.storageBytes || 0)} / ${formatBytes(stats.quotaBytes)}` : formatBytes(stats?.storageBytes || 0)
   const quotaPct = Math.min(stats?.quotaUsedPct || 0, 100)
+  const primaryCards = [
+    { label: "总收件", value: stats?.totalIncoming || 0, icon: <Mail className="h-4 w-4" />, tone: "bg-blue-50 text-blue-600" },
+    { label: "总发件", value: stats?.totalOutgoing || 0, icon: <SendHorizontal className="h-4 w-4" />, tone: "bg-emerald-50 text-emerald-600" },
+    { label: "未读邮件", value: stats?.unreadMessages || 0, icon: <MailCheck className="h-4 w-4" />, tone: "bg-amber-50 text-amber-600" },
+    { label: "存储用量", value: quotaLabel, detail: stats?.quotaBytes ? `${quotaPct.toFixed(0)}%` : "不限", icon: <HardDrive className="h-4 w-4" />, tone: "bg-slate-100 text-slate-700" },
+  ]
+  const secondaryStats = [
+    { label: "今日发件", value: stats?.todayOutgoing || 0 },
+    { label: "草稿", value: stats?.draftMessages || 0 },
+    { label: "发送失败", value: stats?.failedSends || 0 },
+    { label: "平均邮件大小", value: formatBytes(stats?.averageMessageBytes || 0) },
+  ]
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs font-medium text-muted-foreground">当前统计：{mailbox?.address || "未选择邮箱"}</div>
+        <div className="min-w-0">
+          <p className="text-sm leading-6 text-muted-foreground">查看邮件收发趋势、分布情况和常用联系人。</p>
+          {mailbox && <p className="mt-0.5 truncate text-xs text-muted-foreground/80">{mailbox.address}</p>}
+        </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <div className="grid grid-cols-4 rounded-md border bg-background p-0.5 sm:flex">
             {[
-              ["7", "7天"],
-              ["30", "30天"],
-              ["90", "90天"],
-              ["365", "365天"],
+              [7, "7天"],
+              [30, "30天"],
+              [90, "90天"],
+              [365, "365天"],
             ].map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                className={cn("h-7 rounded px-2.5 text-xs font-medium transition-colors", range === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
-                onClick={() => setRange(value)}
+                className={cn("h-7 rounded px-2.5 text-xs font-medium transition-colors", rangeDays === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+                onClick={() => onRangeChange(Number(value))}
               >
                 {label}
               </button>
@@ -3000,22 +3015,171 @@ function StatsSection({ stats, mailbox, onRefresh }: { stats?: MailStats; mailbo
           <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={onRefresh}><RefreshCcw className="h-4 w-4" />刷新</Button>
         </div>
       </div>
-      <StatsSummary stats={stats} />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
-        <SettingsCard title="文件夹分布" contentClassName="space-y-3">
-          <FolderDistribution stats={stats} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {primaryCards.map((card) => (
+          <div key={card.label} className="rounded-lg border bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
+              {card.detail && <Badge variant="secondary" className="rounded-md font-normal">{card.detail}</Badge>}
+            </div>
+            <div className="truncate text-[22px] font-semibold leading-7 text-foreground">{card.value}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{card.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {secondaryStats.map((item) => (
+          <div key={item.label} className="rounded-lg border bg-background px-4 py-3">
+            <div className="text-lg font-semibold leading-6 text-foreground">{item.value}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
+          </div>
+        ))}
+      </div>
+      <SettingsCard title="收发趋势" contentClassName="pt-1">
+        <StatsTrendChart points={stats?.trend || []} />
+      </SettingsCard>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
+        <SettingsCard title="邮件分布" contentClassName="pt-1">
+          <StatsDistribution items={stats?.distribution || []} />
         </SettingsCard>
         <SettingsCard title="存储用量">
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div className="text-lg font-semibold text-foreground">{quotaLabel}</div>
-            <div className="text-sm font-semibold text-foreground">{stats?.quotaBytes ? `${quotaPct.toFixed(0)}%` : "不限"}</div>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${stats?.quotaBytes ? quotaPct : 12}%` }} />
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">{quotaPct >= 90 ? "存储容量接近上限，请及时清理。" : "存储容量使用正常。"}</p>
+          <StatsStorage quotaLabel={quotaLabel} quotaPct={quotaPct} hasQuota={!!stats?.quotaBytes} />
         </SettingsCard>
       </div>
+      <SettingsCard title="常用联系人" contentClassName="pt-1">
+        <StatsContacts contacts={stats?.topContacts || []} />
+      </SettingsCard>
+    </div>
+  )
+}
+
+function StatsTrendChart({ points }: { points: MailStats["trend"] }) {
+  const data = points.length ? points : [{ date: "", incoming: 0, outgoing: 0 }]
+  const maxValue = Math.max(...data.flatMap((item) => [item.incoming, item.outgoing]), 1)
+  const width = 520
+  const height = 210
+  const padding = { top: 18, right: 14, bottom: 32, left: 34 }
+  const plotWidth = width - padding.left - padding.right
+  const plotHeight = height - padding.top - padding.bottom
+  const xFor = (index: number) => padding.left + (data.length === 1 ? plotWidth / 2 : (index / (data.length - 1)) * plotWidth)
+  const yFor = (value: number) => padding.top + plotHeight - (value / maxValue) * plotHeight
+  const pathFor = (key: "incoming" | "outgoing") => data.map((item, index) => `${index === 0 ? "M" : "L"} ${xFor(index).toFixed(1)} ${yFor(item[key]).toFixed(1)}`).join(" ")
+  const ticks = trendTicks(data)
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-blue-500" />收件</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" />发件</span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[220px] w-full overflow-visible" role="img" aria-label="邮件收发趋势">
+        {[0, 0.25, 0.5, 0.75, 1].map((step) => {
+          const y = padding.top + plotHeight * step
+          return <line key={step} x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="stroke-border" strokeDasharray={step === 1 ? undefined : "3 5"} />
+        })}
+        <path d={pathFor("incoming")} fill="none" className="stroke-blue-500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={pathFor("outgoing")} fill="none" className="stroke-emerald-500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {data.map((item, index) => (
+          <g key={`${item.date}-${index}`}>
+            <circle cx={xFor(index)} cy={yFor(item.incoming)} r="2.8" className="fill-blue-500" />
+            <circle cx={xFor(index)} cy={yFor(item.outgoing)} r="2.8" className="fill-emerald-500" />
+          </g>
+        ))}
+        <text x="0" y={padding.top + 4} className="fill-muted-foreground text-[11px]">{maxValue}</text>
+        <text x="0" y={padding.top + plotHeight + 4} className="fill-muted-foreground text-[11px]">0</text>
+        {ticks.map((tick) => (
+          <text key={`${tick.index}-${tick.label}`} x={xFor(tick.index)} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[11px]">{tick.label}</text>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+function trendTicks(data: MailStats["trend"]) {
+  if (data.length === 0) return []
+  const count = Math.min(5, data.length)
+  const seen = new Set<number>()
+  const ticks: { index: number; label: string }[] = []
+  for (let i = 0; i < count; i++) {
+    const index = count === 1 ? 0 : Math.round((i / (count - 1)) * (data.length - 1))
+    if (seen.has(index)) continue
+    seen.add(index)
+    ticks.push({ index, label: formatStatsDate(data[index]?.date || "") })
+  }
+  return ticks
+}
+
+function formatStatsDate(value: string) {
+  if (!value) return ""
+  const [, month, day] = value.split("-")
+  return month && day ? `${month}-${day}` : value
+}
+
+function StatsDistribution({ items }: { items: MailStats["distribution"] }) {
+  const rows = items.length ? items : [
+    { key: "inbox", label: "收件箱", count: 0 },
+    { key: "archive", label: "已归档", count: 0 },
+    { key: "spam", label: "垃圾邮件", count: 0 },
+    { key: "trash", label: "已删除", count: 0 },
+    { key: "attachments", label: "有附件", count: 0 },
+    { key: "starred", label: "已加旗标", count: 0 },
+  ]
+  const maxCount = Math.max(...rows.map((row) => row.count), 1)
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {rows.map((row) => (
+        <div key={row.key} className="rounded-lg border bg-background p-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <div className="flex min-w-0 items-center gap-2 font-medium text-foreground">
+              <span className="text-muted-foreground">{distributionIcon(row.key)}</span>
+              <span className="truncate">{row.label}</span>
+            </div>
+            <span className="shrink-0 font-semibold">{row.count}</span>
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary/80" style={{ width: `${Math.max(5, Math.round((row.count / maxCount) * 100))}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function distributionIcon(key: string) {
+  const cls = "h-4 w-4"
+  if (key === "archive") return <Archive className={cls} />
+  if (key === "spam") return <MailX className={cls} />
+  if (key === "trash") return <Trash2 className={cls} />
+  if (key === "attachments") return <Image className={cls} />
+  if (key === "starred") return <Star className={cls} />
+  return <Mail className={cls} />
+}
+
+function StatsStorage({ quotaLabel, quotaPct, hasQuota }: { quotaLabel: string; quotaPct: number; hasQuota: boolean }) {
+  return (
+    <div>
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div className="text-lg font-semibold text-foreground">{quotaLabel}</div>
+        <div className="text-sm font-semibold text-foreground">{hasQuota ? `${quotaPct.toFixed(0)}%` : "不限"}</div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${hasQuota ? quotaPct : 12}%` }} />
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">{quotaPct >= 90 ? "存储容量接近上限，请及时清理。" : "存储容量使用正常。"}</p>
+    </div>
+  )
+}
+
+function StatsContacts({ contacts }: { contacts: MailStats["topContacts"] }) {
+  if (contacts.length === 0) return <EmptyState icon={<Users />} text="暂无常用联系人" description="有邮件往来后会显示联系人排行" />
+  return (
+    <div className="divide-y rounded-lg border bg-background">
+      {contacts.map((item, index) => (
+        <div key={item.email} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-sm">
+          <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">{index + 1}</div>
+          <div className="min-w-0 truncate font-medium text-foreground">{item.email}</div>
+          <Badge variant="secondary" className="rounded-md font-normal">{item.count} 封</Badge>
+        </div>
+      ))}
     </div>
   )
 }

@@ -237,15 +237,24 @@ type BlockedSender struct {
 }
 
 type MailStats struct {
-	TotalMessages   int64                  `json:"totalMessages"`
-	UnreadMessages  int64                  `json:"unreadMessages"`
-	StarredMessages int64                  `json:"starredMessages"`
-	AttachmentCount int64                  `json:"attachmentCount"`
-	AttachmentBytes int64                  `json:"attachmentBytes"`
-	StorageBytes    int64                  `json:"storageBytes"`
-	QuotaBytes      int64                  `json:"quotaBytes"`
-	QuotaUsedPct    float64                `json:"quotaUsedPct"`
-	ByFolder        []MailStatsFolderCount `json:"byFolder"`
+	TotalMessages       int64                       `json:"totalMessages"`
+	TotalIncoming       int64                       `json:"totalIncoming"`
+	TotalOutgoing       int64                       `json:"totalOutgoing"`
+	UnreadMessages      int64                       `json:"unreadMessages"`
+	TodayOutgoing       int64                       `json:"todayOutgoing"`
+	DraftMessages       int64                       `json:"draftMessages"`
+	FailedSends         int64                       `json:"failedSends"`
+	StarredMessages     int64                       `json:"starredMessages"`
+	AttachmentCount     int64                       `json:"attachmentCount"`
+	AttachmentBytes     int64                       `json:"attachmentBytes"`
+	StorageBytes        int64                       `json:"storageBytes"`
+	QuotaBytes          int64                       `json:"quotaBytes"`
+	QuotaUsedPct        float64                     `json:"quotaUsedPct"`
+	AverageMessageBytes int64                       `json:"averageMessageBytes"`
+	ByFolder            []MailStatsFolderCount      `json:"byFolder"`
+	Trend               []MailStatsTrendPoint       `json:"trend"`
+	Distribution        []MailStatsDistributionItem `json:"distribution"`
+	TopContacts         []MailStatsContact          `json:"topContacts"`
 }
 
 type MailStatsFolderCount struct {
@@ -254,6 +263,23 @@ type MailStatsFolderCount struct {
 	Count  int64  `json:"count"`
 	Unread int64  `json:"unread"`
 	Bytes  int64  `json:"bytes"`
+}
+
+type MailStatsTrendPoint struct {
+	Date     string `json:"date"`
+	Incoming int64  `json:"incoming"`
+	Outgoing int64  `json:"outgoing"`
+}
+
+type MailStatsDistributionItem struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+type MailStatsContact struct {
+	Email string `json:"email"`
+	Count int64  `json:"count"`
 }
 
 type ExternalIMAPAccount struct {

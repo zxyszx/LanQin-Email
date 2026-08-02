@@ -124,7 +124,26 @@ export type MailRuleCondition = { field?: MailRuleConditionField; operator?: Mai
 export type MailRuleAction = { type: "archive" | "trash" | "star" | "mark-read" | "label" | "move" | "forward"; value?: string; labelId?: string }
 export type MailRule = { id: string; mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; fromContains: string; subjectContains: string; action: "archive" | "trash" | "star" | "mark-read" | "label" | "move" | "forward"; enabled: boolean; createdAt: string; appliedExistingCount?: number }
 export type BlockedSender = { id: string; mailboxId: string; email: string; reason: string; createdAt: string }
-export type MailStats = { totalMessages: number; unreadMessages: number; starredMessages: number; attachmentCount: number; attachmentBytes: number; storageBytes: number; quotaBytes: number; quotaUsedPct: number; byFolder: { folder: string; role: string; count: number; unread: number; bytes: number }[] }
+export type MailStats = {
+  totalMessages: number
+  totalIncoming: number
+  totalOutgoing: number
+  unreadMessages: number
+  todayOutgoing: number
+  draftMessages: number
+  failedSends: number
+  starredMessages: number
+  attachmentCount: number
+  attachmentBytes: number
+  storageBytes: number
+  quotaBytes: number
+  quotaUsedPct: number
+  averageMessageBytes: number
+  byFolder: { folder: string; role: string; count: number; unread: number; bytes: number }[]
+  trend: { date: string; incoming: number; outgoing: number }[]
+  distribution: { key: string; label: string; count: number }[]
+  topContacts: { email: string; count: number }[]
+}
 export type ForwardingVerifiedEmail = {
   id: string
   email: string

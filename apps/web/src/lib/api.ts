@@ -99,7 +99,13 @@ export const api = {
   blockedSenders: () => request<ListResponse<BlockedSender>>("/api/me/blocked-senders"),
   createBlockedSender: (payload: { mailboxId: string; email: string; reason: string }) => request<BlockedSender>("/api/me/blocked-senders", { method: "POST", body: JSON.stringify(payload) }),
   deleteBlockedSender: (id: string) => request<{ ok: boolean }>(`/api/me/blocked-senders/${id}`, { method: "DELETE" }),
-  mailStats: (mailboxId?: string) => request<MailStats>(`/api/me/stats${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
+  mailStats: (mailboxId?: string, days?: number) => {
+    const query = new URLSearchParams()
+    if (mailboxId) query.set("mailboxId", mailboxId)
+    if (days) query.set("days", String(days))
+    const suffix = query.toString()
+    return request<MailStats>(`/api/me/stats${suffix ? `?${suffix}` : ""}`)
+  },
   cleanupMail: (payload: { mailboxId: string; target: "empty-trash" | "empty-spam" | "archive-read-inbox" }) => request<{ ok: boolean; affected: number }>("/api/me/cleanup", { method: "POST", body: JSON.stringify(payload) }),
   mailboxApplyOptions: () => request<MailboxApplyOptions>("/api/me/mailbox-apply-options"),
   applyMailbox: (payload: { domainId: string; localPart: string; displayName: string }) => request<Mailbox>("/api/me/mailboxes/apply", { method: "POST", body: JSON.stringify(payload) }),
