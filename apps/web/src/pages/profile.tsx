@@ -2721,9 +2721,9 @@ function RuleForwardTargets({ value, onChange }: { value: string; onChange: (val
     <div className="space-y-2">
       {rows.map((email, index) => (
         <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_40px_40px]">
-          <Input type="email" value={email} onChange={(event) => updateRow(index, event.target.value)} placeholder={`转发邮箱 ${index + 1}`} />
-          <Button type="button" variant="ghost" size="icon" className="size-10 text-muted-foreground" onClick={() => removeRow(index)} disabled={rows.length === 1 && !email.trim()} aria-label={`移除转发邮箱 ${index + 1}`}><X className="h-4 w-4" /></Button>
-          <Button type="button" variant="ghost" size="icon" className="size-10" onClick={() => addRow(index)} aria-label={`添加转发邮箱 ${index + 2}`}><Plus className="h-4 w-4" /></Button>
+          <Input type="email" value={email} onChange={(event) => updateRow(index, event.target.value)} placeholder={`目标邮箱 ${index + 1}`} />
+          <Button type="button" variant="ghost" size="icon" className="size-10 text-muted-foreground" onClick={() => removeRow(index)} disabled={rows.length === 1 && !email.trim()} aria-label={`移除目标邮箱 ${index + 1}`}><X className="h-4 w-4" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="size-10" onClick={() => addRow(index)} aria-label={`添加目标邮箱 ${index + 2}`}><Plus className="h-4 w-4" /></Button>
         </div>
       ))}
     </div>
