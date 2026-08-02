@@ -30,7 +30,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import {
   Sidebar,
@@ -89,7 +88,8 @@ const filterLabels: Record<MailFilter, string> = {
 const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "", startDate: "", endDate: "", hasAttachments: false, unread: false, starred: false }
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
 const mailboxSelectionStorageVersion = "2"
-const mailCompactBreakpoint = 1024
+const mailCompactBreakpoint = 768
+const mailDetailBreakpoint = 1180
 
 function useMaxViewportWidth(maxWidth: number) {
   const [matches, setMatches] = React.useState(false)
@@ -133,6 +133,7 @@ export function MailPage() {
   const [displayMode] = useDisplayMode()
   const isMobile = useIsMobile()
   const isNarrowMailViewport = useMaxViewportWidth(mailCompactBreakpoint)
+  const isTwoPaneMailViewport = useMaxViewportWidth(mailDetailBreakpoint)
   const compactMailLayout = isMobile || isNarrowMailViewport || displayMode === "compact"
   const [refreshing, setRefreshing] = React.useState(false)
   const [autoRefreshing, setAutoRefreshing] = React.useState(false)
@@ -1085,6 +1086,7 @@ export function MailPage() {
             selectedMailboxId={selectedMailboxId}
             selectedMailbox={selectedMailbox}
             fallbackAddress={selectedMailbox?.address || me.data?.user.email || ""}
+            unreadCount={mailboxUnreadCount}
             onSelect={switchMailbox}
           />
           {!sidebarCollapsed && !isAllMailboxSelected && (
@@ -1416,8 +1418,8 @@ export function MailPage() {
       language={language}
     />
   ) : (
-    <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1 bg-background">
-      <ResizablePanel defaultSize={24} minSize={20} maxSize={34} className="min-w-0">
+    <div className={cn("mail-content-grid min-h-0 flex-1 bg-background", selectedId && "is-reading")}>
+      <div className={cn("mail-list-pane min-w-0", selectedId && "max-[1179px]:hidden")}>
         <div className="flex h-full min-h-0 flex-col bg-background">
           <div className="shrink-0 border-b px-3 pb-2.5 pt-2.5">
             <div className="relative">
@@ -1480,11 +1482,16 @@ export function MailPage() {
               </div>
             </div>
             <div className="flex min-w-0 shrink-0 items-center gap-1.5">
-              {selectedCountOnPage > 0 && canOrganizeMail && <BulkActionMenu pending={bulkPending} onAction={runBulkAction} />}
               <Button type="button" variant={mailFilter === "all" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("all")}>全部</Button>
               <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
             </div>
           </div>
+          {selectedCountOnPage > 0 && canOrganizeMail && (
+            <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5">
+              <span className="min-w-0 truncate text-[13px] text-muted-foreground">已选 {selectedCountOnPage} 封</span>
+              <BulkActionToolbar pending={bulkPending} onAction={runBulkAction} />
+            </div>
+          )}
           <ScrollArea className="min-h-0 flex-1">
             {(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && <MessageSkeleton />}
             {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} canOrganize={canOrganizeMail} />)}
@@ -1498,11 +1505,10 @@ export function MailPage() {
             )}
           </ScrollArea>
         </div>
-      </ResizablePanel>
-      <ResizableHandle />
+      </div>
 
-      <ResizablePanel defaultSize={76} minSize={50} className="min-w-0">
-        <section className="h-full min-h-0 bg-background">
+      <section className={cn("mail-detail-pane min-w-0", !selectedId && "max-[1179px]:hidden")}>
+        <div className="h-full min-h-0 bg-background">
           {!selectedId && (
             <div className="grid h-full place-items-center text-muted-foreground">
               <div className="flex flex-col items-center gap-4 text-center">
@@ -1514,6 +1520,12 @@ export function MailPage() {
           {detail.isLoading && <div className="space-y-4 p-6"><Skeleton className="h-8 w-2/3" /><Skeleton className="h-4 w-1/3" /><Separator /><Skeleton className="h-40 w-full" /></div>}
           {selected && <div className="flex h-full min-h-0 flex-col">
             <div className="border-b p-5">
+              {isTwoPaneMailViewport && (
+                <Button variant="ghost" size="sm" className="-ml-2 mb-3 h-8 px-2 text-[13px] font-normal" onClick={() => setSelectedId(null)}>
+                  <ArrowLeft className="h-4 w-4" />
+                  返回列表
+                </Button>
+              )}
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="text-xl font-semibold">{selected.subject}</h2>
                 <div className="flex flex-wrap justify-end gap-2">
@@ -1540,9 +1552,9 @@ export function MailPage() {
               </div>
             </ScrollArea>
           </div>}
-        </section>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+        </div>
+      </section>
+    </div>
   )
 
   return (
@@ -1575,17 +1587,14 @@ export function MailPage() {
             <section className="flex min-h-0 flex-1 flex-col">{contentView}</section>
           </div>
         ) : (
-          <ResizablePanelGroup direction="horizontal" className="h-full min-h-0 w-full min-w-0">
-            <ResizablePanel defaultSize={13} minSize={8} maxSize={18} className="min-w-0">
+          <div className="mail-shell-grid h-full min-h-0 w-full min-w-0 overflow-hidden">
+            <aside className="min-w-0">
               {sidebarContent}
-            </ResizablePanel>
-            <ResizableHandle />
-            <ResizablePanel defaultSize={87} minSize={45} className="min-w-0">
-              <section className="flex h-full min-h-0 min-w-0 flex-col">
-                {contentView}
-              </section>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+            </aside>
+            <section className="flex h-full min-h-0 min-w-0 flex-col">
+              {contentView}
+            </section>
+          </div>
         )}
       </SidebarProvider>
 
@@ -2247,25 +2256,38 @@ function datetimeLocalToISO(value: string) {
 
 type BulkAction = "read" | "unread" | "star" | "unstar" | "archive" | "trash" | "spam" | "delete"
 
-function BulkActionMenu({ pending, onAction }: { pending: boolean; onAction: (action: BulkAction) => void }) {
+function BulkActionToolbar({ pending, onAction }: { pending: boolean; onAction: (action: BulkAction) => void }) {
+  const buttonClass = "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" className="h-8 w-8 rounded-md shadow-none" disabled={pending} title="批量操作" aria-label="批量操作">
-          <Ellipsis className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuItem onSelect={() => onAction("read")}>标为已读</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("unread")}>标为未读</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("star")}>添加星标</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("unstar")}>取消星标</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("archive")}>归档</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("trash")}>移入回收站</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("spam")}>移入垃圾邮件</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onAction("delete")} className="text-destructive">删除</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex shrink-0 items-center gap-1">
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("read")} title="标为已读" aria-label="标为已读">
+        <MailCheck className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("unread")} title="标为未读" aria-label="标为未读">
+        <Mail className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("star")} title="添加星标" aria-label="添加星标">
+        <Star className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("archive")} title="归档" aria-label="归档">
+        <Archive className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className={buttonClass} disabled={pending} onClick={() => onAction("trash")} title="移入已删除" aria-label="移入已删除">
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className={buttonClass} disabled={pending} title="更多操作" aria-label="更多操作">
+            <Ellipsis className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuItem onSelect={() => onAction("unstar")}>取消星标</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onAction("spam")}>移入垃圾邮件</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onAction("delete")} className="text-destructive">彻底删除</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
@@ -2620,7 +2642,7 @@ function CompactMailView({
           {selectedIds.length > 0 ? (
             <>
               <span className="hidden text-xs text-muted-foreground min-[380px]:inline">已选 {selectedIds.length} 封</span>
-              {canOrganize && <BulkActionMenu pending={bulkPending} onAction={onBulkAction} />}
+              {canOrganize && <BulkActionToolbar pending={bulkPending} onAction={onBulkAction} />}
             </>
           ) : (
             <div className="text-xs text-muted-foreground">{messages.length} / {total} 封</div>
@@ -3038,10 +3060,11 @@ function AccountHeader({ collapsed, name, email, darkMode, language, onToggleThe
   )
 }
 
-function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMailbox, fallbackAddress, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; selectedMailboxId: string; selectedMailbox?: Mailbox; fallbackAddress?: string; onSelect: (mailboxId: string) => void }) {
+function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMailbox, fallbackAddress, unreadCount, onSelect }: { collapsed: boolean; mailboxes: Mailbox[]; selectedMailboxId: string; selectedMailbox?: Mailbox; fallbackAddress?: string; unreadCount: number; onSelect: (mailboxId: string) => void }) {
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
   const displayAddress = isAllSelected ? "全部邮箱" : selectedMailbox?.address || fallbackAddress || "选择邮箱"
+  const displayUnreadCount = Math.min(unreadCount, 99)
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
   const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
   const filteredMailboxes = React.useMemo(() => {
@@ -3059,6 +3082,11 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
           {!collapsed && (
             <>
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{displayAddress}</span>
+              {isAllSelected && unreadCount > 0 && (
+                <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
+                  {unreadCount > 99 ? "99+" : displayUnreadCount}
+                </span>
+              )}
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </>
           )}
@@ -3082,6 +3110,11 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
           <DropdownMenuItem onSelect={() => onSelect("all")} className={cn("h-8 gap-2 rounded-sm px-2 text-[13px] font-normal", isAllSelected && "bg-accent text-accent-foreground")}>
             <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">全部邮箱</span>
+            {unreadCount > 0 && (
+              <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground">
+                {unreadCount > 99 ? "99+" : displayUnreadCount}
+              </span>
+            )}
           </DropdownMenuItem>
         )}
         {filteredMailboxes.map((mailbox) => (

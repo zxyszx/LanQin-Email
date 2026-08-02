@@ -83,6 +83,36 @@
 }
 
 @layer components {
+  .mail-shell-grid {
+    display: grid;
+    grid-template-columns: clamp(236px, 17vw, 344px) minmax(0, 1fr);
+  }
+
+  .mail-content-grid {
+    display: grid;
+    grid-template-columns: minmax(420px, 528px) minmax(0, 1fr);
+  }
+
+  .mail-list-pane,
+  .mail-detail-pane {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .mail-list-pane {
+    border-right: 1px solid hsl(var(--border));
+  }
+
+  @media (max-width: 1179px) {
+    .mail-content-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mail-list-pane {
+      border-right: 0;
+    }
+  }
+
   [data-sidebar="content"] {
     gap: 0.75rem;
   }
