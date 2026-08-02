@@ -14,12 +14,15 @@ NewSzxcn-Email 是一个可自建、可管理、开箱即用的开源邮箱系�
 
 ## 截图
 
-截图可自行替换上传：
+<p>
+  <img src="docs/screenshots/mail-preview.png" alt="邮箱首页" width="49%" />
+  <img src="docs/screenshots/compose-preview.png" alt="写邮件" width="49%" />
+</p>
 
-- `docs/screenshots/mail-preview.png`
-- `docs/screenshots/compose-preview.png`
-- `docs/screenshots/admin-preview.png`
-- `docs/screenshots/client-preview.png`
+<p>
+  <img src="docs/screenshots/admin-preview.png" alt="后台管理" width="49%" />
+  <img src="docs/screenshots/client-preview.png" alt="邮箱管理" width="49%" />
+</p>
 
 ## 技术栈
 

@@ -14,12 +14,15 @@ Live site: [mail.newszxcn.com](https://mail.newszxcn.com)
 
 ## Screenshots
 
-Replace these images when needed:
+<p>
+  <img src="docs/screenshots/mail-preview.png" alt="Mailbox" width="49%" />
+  <img src="docs/screenshots/compose-preview.png" alt="Compose" width="49%" />
+</p>
 
-- `docs/screenshots/mail-preview.png`
-- `docs/screenshots/compose-preview.png`
-- `docs/screenshots/admin-preview.png`
-- `docs/screenshots/client-preview.png`
+<p>
+  <img src="docs/screenshots/admin-preview.png" alt="Admin console" width="49%" />
+  <img src="docs/screenshots/client-preview.png" alt="Mailbox management" width="49%" />
+</p>
 
 ## Stack
 
