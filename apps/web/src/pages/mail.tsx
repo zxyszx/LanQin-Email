@@ -89,7 +89,7 @@ const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "",
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
 const mailboxSelectionStorageVersion = "2"
 const mailCompactBreakpoint = 768
-const mailDetailBreakpoint = 1180
+const mailDetailBreakpoint = 980
 
 function useMaxViewportWidth(maxWidth: number) {
   const [matches, setMatches] = React.useState(false)
@@ -285,6 +285,7 @@ export function MailPage() {
       await qc.invalidateQueries({ queryKey: ["messages"] })
       await qc.invalidateQueries({ queryKey: ["message", variables.id] })
       await qc.invalidateQueries({ queryKey: ["folders"] })
+      await qc.invalidateQueries({ queryKey: ["mailboxes"] })
       await qc.invalidateQueries({ queryKey: ["mail-stats"] })
     },
     onError: (error) => toast({ title: "操作失败", description: error.message }),
@@ -377,8 +378,8 @@ export function MailPage() {
     },
     onSettled: () => { qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["messages"] }) },
   })
-  const del = useMutation({ mutationFn: (id: string) => api.delete(id), onSuccess: async () => { setSelectedId(null); setPendingConfirm(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
-  const move = useMutation({ mutationFn: ({ id, folder }: { id: string; folder: string }) => api.move(id, folder), onSuccess: async () => { setSelectedId(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已移动" }) } })
+  const del = useMutation({ mutationFn: (id: string) => api.delete(id), onSuccess: async () => { setSelectedId(null); setPendingConfirm(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已删除" }) }, onError: (error) => toast({ title: "删除失败", description: error.message }) })
+  const move = useMutation({ mutationFn: ({ id, folder }: { id: string; folder: string }) => api.move(id, folder), onSuccess: async () => { setSelectedId(null); await qc.invalidateQueries({ queryKey: ["messages"] }); await qc.invalidateQueries({ queryKey: ["folders"] }); await qc.invalidateQueries({ queryKey: ["mailboxes"] }); await qc.invalidateQueries({ queryKey: ["mail-stats"] }); await qc.invalidateQueries({ queryKey: ["labels"] }); toast({ title: "已移动" }) } })
   const cancelScheduledSend = useMutation({
     mutationFn: (item: ScheduledSend) => api.cancelScheduledSend(item.id),
     onMutate: (item) => setCancelingScheduledId(item.id),
@@ -466,6 +467,7 @@ export function MailPage() {
     onSuccess: async (count) => {
       await qc.invalidateQueries({ queryKey: ["messages"] })
       await qc.invalidateQueries({ queryKey: ["folders"] })
+      await qc.invalidateQueries({ queryKey: ["mailboxes"] })
       await qc.invalidateQueries({ queryKey: ["mail-stats"] })
       await qc.invalidateQueries({ queryKey: ["labels"] })
       toast({ title: count > 0 ? `已标记 ${count} 封邮件为已读` : "当前没有未读邮件" })
@@ -668,6 +670,7 @@ export function MailPage() {
       qc.invalidateQueries({ queryKey: ["mail-external-folders"] }),
       qc.invalidateQueries({ queryKey: ["mail-external-accounts"] }),
       qc.invalidateQueries({ queryKey: ["folders"] }),
+      qc.invalidateQueries({ queryKey: ["mailboxes"] }),
       qc.invalidateQueries({ queryKey: ["mail-stats"] }),
       qc.invalidateQueries({ queryKey: ["labels"] }),
       qc.invalidateQueries({ queryKey: ["scheduled-sends"] }),
@@ -1439,7 +1442,7 @@ export function MailPage() {
     />
   ) : (
     <div className={cn("mail-content-grid min-h-0 flex-1 bg-background", selectedId && "is-reading")}>
-      <div className={cn("mail-list-pane min-w-0", selectedId && "max-[1179px]:hidden")}>
+      <div className={cn("mail-list-pane min-w-0", selectedId && "max-[979px]:hidden")}>
         <div className="flex h-full min-h-0 flex-col bg-background">
           <div className="shrink-0 border-b px-3 pb-2.5 pt-2.5">
             <div className="relative">
@@ -1497,7 +1500,7 @@ export function MailPage() {
                     <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
                   </Button>
                   {canOrganizeMail && <Button size="icon" variant="ghost" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)} className="h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground" title="全部已读"><Download className="h-4 w-4" /></Button>}
-                  <Button size="icon" variant="ghost" disabled className="hidden h-7 w-7 text-muted-foreground hover:bg-transparent min-[1180px]:inline-flex" title="导入"><Upload className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" disabled className="hidden h-7 w-7 text-muted-foreground hover:bg-transparent min-[980px]:inline-flex" title="导入"><Upload className="h-4 w-4" /></Button>
                 </div>
               </div>
             </div>
@@ -1527,7 +1530,7 @@ export function MailPage() {
         </div>
       </div>
 
-      <section className={cn("mail-detail-pane min-w-0", !selectedId && "max-[1179px]:hidden")}>
+      <section className={cn("mail-detail-pane min-w-0", !selectedId && "max-[979px]:hidden")}>
         <div className="h-full min-h-0 bg-background">
           {!selectedId && (
             <div className="grid h-full place-items-center text-muted-foreground">
@@ -2959,7 +2962,11 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
   const hiddenLabelCount = Math.max((message.labels?.length || 0) - visibleLabels.length, 0)
   const senderName = senderDisplayName(message)
   return (
-    <div onClick={onClick} onContextMenu={onContextMenu} className={cn("cursor-pointer border-b px-3 py-2.5 text-[13px] transition-colors hover:bg-accent/50 sm:grid sm:grid-cols-[28px_24px_minmax(112px,180px)_minmax(0,1fr)_86px_30px] sm:items-center sm:gap-2 sm:px-3 sm:py-2", active && "bg-accent", !message.isRead && "font-semibold")}>
+    <div onClick={onClick} onContextMenu={onContextMenu} className={cn(
+      "cursor-pointer border-b border-l-2 px-3 py-2.5 text-[13px] transition-colors sm:grid sm:grid-cols-[28px_24px_minmax(112px,180px)_minmax(0,1fr)_86px_30px] sm:items-center sm:gap-2 sm:px-3 sm:py-2",
+      message.isRead ? "border-l-transparent hover:bg-accent/50" : "border-l-primary bg-primary/5 font-semibold hover:bg-primary/10",
+      active && "bg-accent"
+    )}>
       <div className="flex gap-3 sm:contents">
         <Checkbox aria-label="选择邮件" checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} onClick={(event) => event.stopPropagation()} className="mt-0.5 shrink-0 sm:mt-0" />
         {message.isRead ? (
@@ -2969,7 +2976,10 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
         )}
         <div className="min-w-0 flex-1 sm:contents">
           <div className="flex min-w-0 items-center justify-between gap-2 sm:block">
-            <div className="min-w-0 truncate" title={senderTitle(message)}>{senderName}</div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="min-w-0 truncate" title={senderTitle(message)}>{senderName}</div>
+              {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
+            </div>
             <div className="flex shrink-0 items-center gap-1 sm:hidden">
               <span className="text-xs text-muted-foreground">{formatDate(message.receivedAt)}</span>
               {canOrganize && <Button type="button" variant="ghost" size="icon" aria-label={message.isStarred ? "取消星标" : "添加星标"} className="h-6 w-6 text-muted-foreground hover:text-yellow-500" onClick={(event) => { event.stopPropagation(); onStar() }}>
@@ -2985,7 +2995,7 @@ function CompactMessageRow({ message, active, checked, scheduled, onCheckedChang
             {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
             {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
           </div>
-          <div className="mt-1 line-clamp-2 text-xs text-muted-foreground sm:hidden">{message.snippet}</div>
+          <div className={cn("mt-1 line-clamp-2 text-xs sm:hidden", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
         </div>
       </div>
       <div className="hidden shrink-0 text-right text-xs text-muted-foreground sm:block">{formatDate(message.receivedAt)}</div>
@@ -3098,7 +3108,7 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const isAllSelected = selectedMailboxId === "all"
   const displayAddress = isAllSelected ? "全部邮箱" : selectedMailbox?.address || fallbackAddress || "选择邮箱"
-  const selectedUnreadCount = isAllSelected ? unreadCount : selectedMailbox?.unreadCount || 0
+  const selectedUnreadCount = isAllSelected ? unreadCount : (selectedMailbox?.unreadCount ?? unreadCount)
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
   const showAllMailboxOption = !normalizedQuery || "全部邮箱".includes(normalizedQuery) || "all".includes(normalizedQuery)
   const filteredMailboxes = React.useMemo(() => {
@@ -3385,7 +3395,12 @@ function MessageRow({
   const quickActionsVisible = checked || active
   const quickButtonClass = "h-6 w-6 text-muted-foreground hover:bg-accent hover:text-foreground"
   const archiveLabel = message.folder === "Archive" ? "移回收件箱" : "归档"
-  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn("group cursor-pointer border-b px-3 py-2.5 transition-colors hover:bg-accent/60", active && "bg-accent", checked && "bg-accent/70", !message.isRead && "font-semibold")}>
+  return <div onClick={onClick} onContextMenu={onContextMenu} className={cn(
+    "group cursor-pointer border-b border-l-2 px-3 py-2.5 transition-colors",
+    message.isRead ? "border-l-transparent hover:bg-accent/60" : "border-l-primary bg-primary/5 font-semibold hover:bg-primary/10",
+    active && "bg-accent",
+    checked && "bg-accent/70"
+  )}>
     <div className="flex gap-2.5">
       <Checkbox
         aria-label="选择邮件"
@@ -3396,7 +3411,10 @@ function MessageRow({
       />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 truncate text-[13px] font-medium" title={senderTitle(message)}>{senderName}</div>
+            {!message.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />}
+          </div>
           <div className="flex shrink-0 items-center gap-0.5">
             {canOrganize && (
               <div className={cn("hidden shrink-0 items-center gap-0.5", quickActionsVisible ? "flex" : "group-hover:flex")}>
@@ -3431,7 +3449,7 @@ function MessageRow({
           {hiddenLabelCount > 0 && <Badge variant="outline" className="h-5 shrink-0 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground">+{hiddenLabelCount}</Badge>}
           {message.hasAttachments && <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />}
         </div>
-        <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</div>
+        <div className={cn("line-clamp-2 text-xs leading-5", message.isRead ? "text-muted-foreground" : "text-foreground/70")}>{message.snippet}</div>
       </div>
     </div>
   </div>
