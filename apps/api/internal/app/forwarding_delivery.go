@@ -11,15 +11,24 @@ import (
 const forwardingHeaderName = "X-LanQin-Forwarded-By"
 
 func (a *App) processInboundForwarding(ctx context.Context, messageID, mailboxID string, raw []byte) {
-	target, userID, mailboxAddress, err := a.inboundForwardingTarget(ctx, mailboxID)
+	targets, userID, mailboxAddress, err := a.inboundForwardingTargets(ctx, mailboxID)
 	if err != nil {
 		a.log.Warn("failed to load forwarding target", "message", messageID, "mailbox", mailboxID, "error", err)
 		return
 	}
-	if target == "" || userID == "" || mailboxAddress == "" {
+	if len(targets) == 0 || userID == "" || mailboxAddress == "" {
 		return
 	}
-	if normalizeEmail(target) == normalizeEmail(mailboxAddress) {
+	self := normalizeEmail(mailboxAddress)
+	filteredTargets := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if normalizeEmail(target) == self {
+			continue
+		}
+		filteredTargets = append(filteredTargets, target)
+	}
+	targets = dedupeEmails(filteredTargets)
+	if len(targets) == 0 {
 		return
 	}
 	if len(raw) == 0 {
@@ -47,44 +56,47 @@ func (a *App) processInboundForwarding(ctx context.Context, messageID, mailboxID
 		Source:        sendSourceForwarding,
 		MailFrom:      mailboxAddress,
 		HeaderFrom:    mailboxAddress,
-		Recipients:    []string{target},
+		Recipients:    targets,
 		MIMEBytes:     forwarded,
 		Now:           a.now().UTC(),
 	})
 	if err != nil {
-		a.log.Warn("failed to enqueue inbound forwarding", "message", messageID, "mailbox", mailboxID, "target", target, "error", err)
+		a.log.Warn("failed to enqueue inbound forwarding", "message", messageID, "mailbox", mailboxID, "targets", strings.Join(targets, ","), "error", err)
 		return
 	}
 	if queueID == "" {
-		a.log.Warn("forwarding target configured but SMTP sending is not configured", "message", messageID, "mailbox", mailboxID, "target", target)
+		a.log.Warn("forwarding target configured but SMTP sending is not configured", "message", messageID, "mailbox", mailboxID, "targets", strings.Join(targets, ","))
 	}
 }
 
-func (a *App) inboundForwardingTarget(ctx context.Context, mailboxID string) (targetEmail, userID, mailboxAddress string, err error) {
-	var mailboxTarget, accountTarget string
-	err = a.db.QueryRowContext(ctx, `SELECT mb.user_id,mb.address,COALESCE(mfs.target_email,''),COALESCE(afs.target_email,'')
+func (a *App) inboundForwardingTargets(ctx context.Context, mailboxID string) (targetEmails []string, userID, mailboxAddress string, err error) {
+	var mailboxTarget, mailboxTargetsJSON, accountTarget, accountTargetsJSON string
+	err = a.db.QueryRowContext(ctx, `SELECT mb.user_id,mb.address,COALESCE(mfs.target_email,''),COALESCE(mfs.target_emails,'[]'),COALESCE(afs.target_email,''),COALESCE(afs.target_emails,'[]')
 		FROM mailboxes mb
 		LEFT JOIN mailbox_forwarding_settings mfs ON mfs.mailbox_id=mb.id
 		LEFT JOIN account_forwarding_settings afs ON afs.user_id=mb.user_id
-		WHERE mb.id=? AND mb.status='active'`, mailboxID).Scan(&userID, &mailboxAddress, &mailboxTarget, &accountTarget)
+		WHERE mb.id=? AND mb.status='active'`, mailboxID).Scan(&userID, &mailboxAddress, &mailboxTarget, &mailboxTargetsJSON, &accountTarget, &accountTargetsJSON)
 	if err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
-	target := normalizeEmail(mailboxTarget)
-	if target == "" {
-		target = normalizeEmail(accountTarget)
+	targets := forwardingTargetsFromStored(mailboxTarget, mailboxTargetsJSON)
+	if len(targets) == 0 {
+		targets = forwardingTargetsFromStored(accountTarget, accountTargetsJSON)
 	}
-	if target == "" {
-		return "", userID, mailboxAddress, nil
+	if len(targets) == 0 {
+		return nil, userID, mailboxAddress, nil
 	}
-	verified, err := a.forwardingEmailVerified(ctx, userID, target)
-	if err != nil {
-		return "", "", "", err
+	verifiedTargets := make([]string, 0, len(targets))
+	for _, target := range targets {
+		verified, err := a.forwardingEmailVerified(ctx, userID, target)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if verified {
+			verifiedTargets = append(verifiedTargets, target)
+		}
 	}
-	if !verified {
-		return "", userID, mailboxAddress, nil
-	}
-	return target, userID, mailboxAddress, nil
+	return dedupeEmails(verifiedTargets), userID, mailboxAddress, nil
 }
 
 func (a *App) forwardingRawMessage(ctx context.Context, messageID string) ([]byte, error) {

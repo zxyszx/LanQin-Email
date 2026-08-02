@@ -249,11 +249,13 @@ func (a *App) migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS account_forwarding_settings (
 			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			target_email TEXT NOT NULL DEFAULT '',
+			target_emails TEXT NOT NULL DEFAULT '[]',
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS mailbox_forwarding_settings (
 			mailbox_id TEXT PRIMARY KEY REFERENCES mailboxes(id) ON DELETE CASCADE,
 			target_email TEXT NOT NULL DEFAULT '',
+			target_emails TEXT NOT NULL DEFAULT '[]',
 			updated_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS aliases (
@@ -635,6 +637,9 @@ func (a *App) migrate(ctx context.Context) error {
 	if err := a.migrateForwardingVerification(ctx); err != nil {
 		return err
 	}
+	if err := a.migrateForwardingTargets(ctx); err != nil {
+		return err
+	}
 	if err := a.migrateAPITokenScopes(ctx); err != nil {
 		return err
 	}
@@ -664,6 +669,57 @@ func (a *App) migrateForwardingVerification(ctx context.Context) error {
 	}
 	_, err := a.db.ExecContext(ctx, `UPDATE forwarding_verified_emails SET verified_at=created_at WHERE verified=1 AND (verified_at IS NULL OR verified_at='')`)
 	return err
+}
+
+func (a *App) migrateForwardingTargets(ctx context.Context) error {
+	if err := a.ensureTableColumn(ctx, "account_forwarding_settings", "target_emails", `ALTER TABLE account_forwarding_settings ADD COLUMN target_emails TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return err
+	}
+	if err := a.ensureTableColumn(ctx, "mailbox_forwarding_settings", "target_emails", `ALTER TABLE mailbox_forwarding_settings ADD COLUMN target_emails TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return err
+	}
+	if err := a.backfillForwardingTargets(ctx, "account_forwarding_settings", "user_id"); err != nil {
+		return err
+	}
+	return a.backfillForwardingTargets(ctx, "mailbox_forwarding_settings", "mailbox_id")
+}
+
+func (a *App) backfillForwardingTargets(ctx context.Context, table, keyColumn string) error {
+	rows, err := a.db.QueryContext(ctx, fmt.Sprintf(`SELECT %s,target_email,target_emails FROM %s`, keyColumn, table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type row struct {
+		key         string
+		targetEmail string
+		targetsJSON string
+	}
+	var updates []row
+	for rows.Next() {
+		var item row
+		if err := rows.Scan(&item.key, &item.targetEmail, &item.targetsJSON); err != nil {
+			return err
+		}
+		targets := forwardingTargetsFromStored(item.targetEmail, item.targetsJSON)
+		if len(targets) == 0 || len(jsonDecodeSlice(item.targetsJSON)) > 0 {
+			continue
+		}
+		updates = append(updates, item)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range updates {
+		targets := forwardingTargetsFromStored(item.targetEmail, item.targetsJSON)
+		if _, err := a.db.ExecContext(ctx, fmt.Sprintf(`UPDATE %s SET target_emails=? WHERE %s=?`, table, keyColumn), jsonEncode(targets), item.key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) migrateAPITokenScopes(ctx context.Context) error {

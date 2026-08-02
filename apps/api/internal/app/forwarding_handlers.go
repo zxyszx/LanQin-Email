@@ -28,13 +28,15 @@ type ForwardingVerifiedEmail struct {
 }
 
 type MailboxForwardingRule struct {
-	MailboxID   string `json:"mailboxId"`
-	TargetEmail string `json:"targetEmail"`
+	MailboxID    string   `json:"mailboxId"`
+	TargetEmail  string   `json:"targetEmail"`
+	TargetEmails []string `json:"targetEmails"`
 }
 
 type ForwardingSettings struct {
 	VerifiedEmails     []ForwardingVerifiedEmail `json:"verifiedEmails"`
 	AccountTargetEmail string                    `json:"accountTargetEmail"`
+	AccountTargetEmails []string                  `json:"accountTargetEmails"`
 	MailboxRules       []MailboxForwardingRule   `json:"mailboxRules"`
 }
 
@@ -189,12 +191,7 @@ func (a *App) handleDeleteForwardingVerifiedEmail(w http.ResponseWriter, r *http
 		respondError(w, http.StatusInternalServerError, "failed to delete verified email")
 		return
 	}
-	if _, err := tx.ExecContext(r.Context(), `UPDATE account_forwarding_settings SET target_email='',updated_at=? WHERE user_id=? AND target_email=?`, now, user.ID, email); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to update account forwarding")
-		return
-	}
-	if _, err := tx.ExecContext(r.Context(), `DELETE FROM mailbox_forwarding_settings
-		WHERE target_email=? AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id=?)`, email, user.ID); err != nil {
+	if err := a.removeForwardingTargetFromSettings(r.Context(), tx, user.ID, email, now); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update mailbox forwarding")
 		return
 	}
@@ -213,22 +210,24 @@ func (a *App) handleDeleteForwardingVerifiedEmail(w http.ResponseWriter, r *http
 func (a *App) handleUpdateAccountForwarding(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	var req struct {
-		TargetEmail string `json:"targetEmail"`
+		TargetEmail  string   `json:"targetEmail"`
+		TargetEmails []string `json:"targetEmails"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
 		return
 	}
-	target, err := a.cleanForwardingTarget(r.Context(), user.ID, req.TargetEmail)
+	targets, err := a.cleanForwardingTargets(r.Context(), user.ID, forwardingTargetsFromRequest(req.TargetEmail, req.TargetEmails))
 	if err != nil {
 		badRequest(w, err)
 		return
 	}
+	target := firstForwardingTarget(targets)
 	now := a.now().UTC().Format(time.RFC3339Nano)
-	_, err = a.db.ExecContext(r.Context(), `INSERT INTO account_forwarding_settings(user_id,target_email,updated_at)
-		VALUES(?,?,?)
-		ON CONFLICT(user_id) DO UPDATE SET target_email=excluded.target_email,updated_at=excluded.updated_at`,
-		user.ID, target, now)
+	_, err = a.db.ExecContext(r.Context(), `INSERT INTO account_forwarding_settings(user_id,target_email,target_emails,updated_at)
+		VALUES(?,?,?,?)
+		ON CONFLICT(user_id) DO UPDATE SET target_email=excluded.target_email,target_emails=excluded.target_emails,updated_at=excluded.updated_at`,
+		user.ID, target, jsonEncode(targets), now)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to save account forwarding")
 		return
@@ -256,28 +255,30 @@ func (a *App) handleUpdateMailboxForwarding(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
-		TargetEmail string `json:"targetEmail"`
+		TargetEmail  string   `json:"targetEmail"`
+		TargetEmails []string `json:"targetEmails"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
 		return
 	}
-	target, err := a.cleanForwardingTarget(r.Context(), user.ID, req.TargetEmail)
+	targets, err := a.cleanForwardingTargets(r.Context(), user.ID, forwardingTargetsFromRequest(req.TargetEmail, req.TargetEmails))
 	if err != nil {
 		badRequest(w, err)
 		return
 	}
-	if target == "" {
+	target := firstForwardingTarget(targets)
+	if len(targets) == 0 {
 		if _, err := a.db.ExecContext(r.Context(), `DELETE FROM mailbox_forwarding_settings WHERE mailbox_id=?`, mailboxID); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to save mailbox forwarding")
 			return
 		}
 	} else {
 		now := a.now().UTC().Format(time.RFC3339Nano)
-		if _, err := a.db.ExecContext(r.Context(), `INSERT INTO mailbox_forwarding_settings(mailbox_id,target_email,updated_at)
-			VALUES(?,?,?)
-			ON CONFLICT(mailbox_id) DO UPDATE SET target_email=excluded.target_email,updated_at=excluded.updated_at`,
-			mailboxID, target, now); err != nil {
+		if _, err := a.db.ExecContext(r.Context(), `INSERT INTO mailbox_forwarding_settings(mailbox_id,target_email,target_emails,updated_at)
+			VALUES(?,?,?,?)
+			ON CONFLICT(mailbox_id) DO UPDATE SET target_email=excluded.target_email,target_emails=excluded.target_emails,updated_at=excluded.updated_at`,
+			mailboxID, target, jsonEncode(targets), now); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to save mailbox forwarding")
 			return
 		}
@@ -325,14 +326,17 @@ func (a *App) forwardingSettings(ctx context.Context, userID string) (Forwarding
 	if err := rows.Err(); err != nil {
 		return settings, err
 	}
-	err = a.db.QueryRowContext(ctx, `SELECT target_email FROM account_forwarding_settings WHERE user_id=?`, userID).Scan(&settings.AccountTargetEmail)
+	var accountTarget, accountTargetsJSON string
+	err = a.db.QueryRowContext(ctx, `SELECT target_email,target_emails FROM account_forwarding_settings WHERE user_id=?`, userID).Scan(&accountTarget, &accountTargetsJSON)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return settings, err
 	}
-	rows, err = a.db.QueryContext(ctx, `SELECT mfs.mailbox_id,mfs.target_email
+	settings.AccountTargetEmails = forwardingTargetsFromStored(accountTarget, accountTargetsJSON)
+	settings.AccountTargetEmail = firstForwardingTarget(settings.AccountTargetEmails)
+	rows, err = a.db.QueryContext(ctx, `SELECT mfs.mailbox_id,mfs.target_email,mfs.target_emails
 		FROM mailbox_forwarding_settings mfs
 		JOIN mailboxes mb ON mb.id=mfs.mailbox_id
-		WHERE mb.user_id=? AND mfs.target_email<>''
+		WHERE mb.user_id=? AND (mfs.target_email<>'' OR mfs.target_emails<>'[]')
 		ORDER BY mb.address`, userID)
 	if err != nil {
 		return settings, err
@@ -340,10 +344,15 @@ func (a *App) forwardingSettings(ctx context.Context, userID string) (Forwarding
 	defer rows.Close()
 	for rows.Next() {
 		var item MailboxForwardingRule
-		if err := rows.Scan(&item.MailboxID, &item.TargetEmail); err != nil {
+		var target, targetsJSON string
+		if err := rows.Scan(&item.MailboxID, &target, &targetsJSON); err != nil {
 			return settings, err
 		}
-		settings.MailboxRules = append(settings.MailboxRules, item)
+		item.TargetEmails = forwardingTargetsFromStored(target, targetsJSON)
+		item.TargetEmail = firstForwardingTarget(item.TargetEmails)
+		if len(item.TargetEmails) > 0 {
+			settings.MailboxRules = append(settings.MailboxRules, item)
+		}
 	}
 	return settings, rows.Err()
 }
@@ -475,25 +484,6 @@ func (a *App) primaryMailboxForUser(ctx context.Context, userID string) (Mailbox
 	return mb, err
 }
 
-func (a *App) cleanForwardingTarget(ctx context.Context, userID, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" || strings.EqualFold(value, "none") {
-		return "", nil
-	}
-	target := normalizeEmail(value)
-	if target == "" || !strings.Contains(target, "@") {
-		return "", errors.New("转发邮箱无效")
-	}
-	ok, err := a.forwardingEmailVerified(ctx, userID, target)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", errors.New("请先完成邮箱验证")
-	}
-	return target, nil
-}
-
 func (a *App) forwardingEmailVerified(ctx context.Context, userID, email string) (bool, error) {
 	var count int
 	err := a.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM forwarding_verified_emails WHERE user_id=? AND email=? AND verified=1`, userID, normalizeEmail(email)).Scan(&count)
@@ -501,6 +491,128 @@ func (a *App) forwardingEmailVerified(ctx context.Context, userID, email string)
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func forwardingTargetsFromRequest(targetEmail string, targetEmails []string) []string {
+	if len(targetEmails) > 0 {
+		return targetEmails
+	}
+	if strings.TrimSpace(targetEmail) == "" {
+		return nil
+	}
+	return []string{targetEmail}
+}
+
+func (a *App) cleanForwardingTargets(ctx context.Context, userID string, values []string) ([]string, error) {
+	targets := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, "none") {
+			continue
+		}
+		target := normalizeEmail(value)
+		if target == "" || !strings.Contains(target, "@") {
+			return nil, errors.New("转发邮箱无效")
+		}
+		if seen[target] {
+			continue
+		}
+		ok, err := a.forwardingEmailVerified(ctx, userID, target)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, errors.New("请先完成邮箱验证")
+		}
+		seen[target] = true
+		targets = append(targets, target)
+	}
+	return targets, nil
+}
+
+func forwardingTargetsFromStored(targetEmail, targetsJSON string) []string {
+	targets := dedupeEmails(jsonDecodeSlice(targetsJSON))
+	if len(targets) > 0 {
+		return targets
+	}
+	target := normalizeEmail(targetEmail)
+	if target == "" {
+		return nil
+	}
+	return []string{target}
+}
+
+func firstForwardingTarget(targets []string) string {
+	if len(targets) == 0 {
+		return ""
+	}
+	return targets[0]
+}
+
+func removeForwardingTarget(targets []string, email string) []string {
+	email = normalizeEmail(email)
+	next := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if normalizeEmail(target) == email {
+			continue
+		}
+		next = append(next, normalizeEmail(target))
+	}
+	return dedupeEmails(next)
+}
+
+func (a *App) removeForwardingTargetFromSettings(ctx context.Context, tx *sql.Tx, userID, email, now string) error {
+	var accountTarget, accountTargetsJSON string
+	if err := tx.QueryRowContext(ctx, `SELECT target_email,target_emails FROM account_forwarding_settings WHERE user_id=?`, userID).Scan(&accountTarget, &accountTargetsJSON); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	} else if err == nil {
+		targets := removeForwardingTarget(forwardingTargetsFromStored(accountTarget, accountTargetsJSON), email)
+		if _, err := tx.ExecContext(ctx, `UPDATE account_forwarding_settings SET target_email=?,target_emails=?,updated_at=? WHERE user_id=?`, firstForwardingTarget(targets), jsonEncode(targets), now, userID); err != nil {
+			return err
+		}
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT mfs.mailbox_id,mfs.target_email,mfs.target_emails
+		FROM mailbox_forwarding_settings mfs
+		JOIN mailboxes mb ON mb.id=mfs.mailbox_id
+		WHERE mb.user_id=?`, userID)
+	if err != nil {
+		return err
+	}
+	type mailboxRow struct {
+		id          string
+		target      string
+		targetsJSON string
+	}
+	var items []mailboxRow
+	for rows.Next() {
+		var item mailboxRow
+		if err := rows.Scan(&item.id, &item.target, &item.targetsJSON); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, item := range items {
+		targets := removeForwardingTarget(forwardingTargetsFromStored(item.target, item.targetsJSON), email)
+		if len(targets) == 0 {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM mailbox_forwarding_settings WHERE mailbox_id=?`, item.id); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE mailbox_forwarding_settings SET target_email=?,target_emails=?,updated_at=? WHERE mailbox_id=?`, firstForwardingTarget(targets), jsonEncode(targets), now, item.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) userOwnsMailboxID(ctx context.Context, userID, mailboxID string) (bool, error) {

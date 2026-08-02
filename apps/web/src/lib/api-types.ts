@@ -136,8 +136,8 @@ export type ForwardingVerifiedEmail = {
   deliveryStatus?: SendQueueStatus | "verified"
   deliveryError?: string
 }
-export type MailboxForwardingRule = { mailboxId: string; targetEmail: string }
-export type ForwardingSettings = { verifiedEmails: ForwardingVerifiedEmail[]; accountTargetEmail: string; mailboxRules: MailboxForwardingRule[] }
+export type MailboxForwardingRule = { mailboxId: string; targetEmail: string; targetEmails?: string[] }
+export type ForwardingSettings = { verifiedEmails: ForwardingVerifiedEmail[]; accountTargetEmail: string; accountTargetEmails?: string[]; mailboxRules: MailboxForwardingRule[] }
 export type ExternalImapStorageMode = "local" | "remote"
 export type ExternalImapTlsMode = "tls" | "starttls" | "plain"
 export type ExternalImapAuthMode = "password" | "oauth2"

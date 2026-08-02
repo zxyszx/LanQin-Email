@@ -1773,7 +1773,7 @@ func TestMailSendQueuesSMTPFailureForRetry(t *testing.T) {
 func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	a := newTestApp(t)
 	stopTestWorkers(a)
-	host, port, received := startCapturingSMTP(t, 4)
+	host, port, received := startCapturingSMTP(t, 8)
 	a.cfg.SMTPHost = host
 	a.cfg.SMTPPort = port
 	ts := httptest.NewServer(a.Router())
@@ -1848,7 +1848,8 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
 		t.Fatalf("reopen account verification link code=%d", code)
 	}
-	if code := admin.do("POST", "/api/me/forwarding/account", map[string]string{"targetEmail": "account-forward@example.test"}, &settings); code != http.StatusOK || settings.AccountTargetEmail != "account-forward@example.test" {
+	verifyTarget("account-forward-two@example.test")
+	if code := admin.do("POST", "/api/me/forwarding/account", map[string]any{"targetEmails": []string{"account-forward@example.test", "account-forward-two@example.test"}}, &settings); code != http.StatusOK || settings.AccountTargetEmail != "account-forward@example.test" || len(settings.AccountTargetEmails) != 2 {
 		t.Fatalf("save account forwarding code=%d settings=%+v", code, settings)
 	}
 
@@ -1887,7 +1888,7 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	if err := a.db.QueryRow(`SELECT recipients_json FROM send_queue WHERE source=? AND sent_message_id=?`, sendSourceForwarding, firstID).Scan(&recipientsJSON); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(recipientsJSON, "account-forward@example.test") {
+	if !strings.Contains(recipientsJSON, "account-forward@example.test") || !strings.Contains(recipientsJSON, "account-forward-two@example.test") {
 		t.Fatalf("account forwarding recipients=%s", recipientsJSON)
 	}
 	if err := a.processDueSendQueue(ctx); err != nil {
@@ -1903,7 +1904,8 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	}
 
 	verifyTarget("mailbox-forward@example.test")
-	if code := admin.do("POST", "/api/me/mailboxes/"+mb.ID+"/forwarding", map[string]string{"targetEmail": "mailbox-forward@example.test"}, &settings); code != http.StatusOK {
+	verifyTarget("mailbox-forward-two@example.test")
+	if code := admin.do("POST", "/api/me/mailboxes/"+mb.ID+"/forwarding", map[string]any{"targetEmails": []string{"mailbox-forward@example.test", "mailbox-forward-two@example.test"}}, &settings); code != http.StatusOK {
 		t.Fatalf("save mailbox forwarding code=%d settings=%+v", code, settings)
 	}
 	raw = []byte("From: sender@example.test\r\nTo: admin@lanqin.local\r\nSubject: mailbox forward\r\nMessage-ID: <mailbox-forward@example.test>\r\n\r\nbody")
@@ -1911,7 +1913,7 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	if err := a.db.QueryRow(`SELECT recipients_json FROM send_queue WHERE source=? AND sent_message_id=?`, sendSourceForwarding, secondID).Scan(&recipientsJSON); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(recipientsJSON, "mailbox-forward@example.test") || strings.Contains(recipientsJSON, "account-forward@example.test") {
+	if !strings.Contains(recipientsJSON, "mailbox-forward@example.test") || !strings.Contains(recipientsJSON, "mailbox-forward-two@example.test") || strings.Contains(recipientsJSON, "account-forward@example.test") || strings.Contains(recipientsJSON, "account-forward-two@example.test") {
 		t.Fatalf("mailbox forwarding should override account target, recipients=%s", recipientsJSON)
 	}
 
