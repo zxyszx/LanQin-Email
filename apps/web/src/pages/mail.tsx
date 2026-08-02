@@ -3113,7 +3113,13 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[204px] max-w-[calc(100vw-32px)] p-1">
+      <DropdownMenuContent
+        align="start"
+        className={cn(
+          "max-w-[calc(100vw-32px)] p-1",
+          collapsed ? "w-[204px]" : "w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)]"
+        )}
+      >
         {mailboxes.length > 0 && (
           <div className="px-1 pb-1">
             <Input
