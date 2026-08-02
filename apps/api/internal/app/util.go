@@ -215,6 +215,21 @@ func nullableString(v string) any {
 	return v
 }
 
+func nullableInt(v *int) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func intPtrFromNull(v sql.NullInt64) *int {
+	if !v.Valid {
+		return nil
+	}
+	value := int(v.Int64)
+	return &value
+}
+
 func parseTime(v string) time.Time {
 	t, _ := time.Parse(time.RFC3339Nano, v)
 	return t

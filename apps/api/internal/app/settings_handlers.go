@@ -251,7 +251,7 @@ func (a *App) handleTestSMTP(w http.ResponseWriter, r *http.Request) {
 		domain = "lanqin.local"
 	}
 	now := a.now().UTC()
-	subject := "LanQin Email SMTP 测试"
+	subject := "NewSzxcn 邮箱 SMTP 测试"
 	bodyText := "这是一封 SMTP 测试邮件。"
 	bodyHTML := "<p>这是一封 SMTP 测试邮件。</p>"
 	if tpl, err := a.mailTemplate(r.Context(), smtpTestTemplateKey); err == nil {

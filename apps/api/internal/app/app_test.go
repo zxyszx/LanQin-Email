@@ -1147,7 +1147,7 @@ func TestPermissionGroupMailLimits(t *testing.T) {
 	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
 		t.Fatalf("admin login code=%d body=%v", code, login)
 	}
-	updateRegularPermissionGroupWithLimits(t, admin, regularUserDefaultPermissions(), PermissionLimits{MaxAttachmentMB: 1, SMTPDailyLimit: 10, SMTPMinuteLimit: 1, IMAPMinuteLimit: 1, POP3MinuteLimit: 1})
+	updateRegularPermissionGroupWithLimits(t, admin, regularUserDefaultPermissions(), PermissionLimits{MaxAttachmentMB: 1, MaxMailboxCount: 9, SMTPDailyLimit: 10, SMTPMinuteLimit: 1, IMAPMinuteLimit: 1, POP3MinuteLimit: 1})
 
 	domainID := mustDefaultDomainID(t, a)
 	sender := createTestMailbox(t, admin, domainID, "limited-sender", "Limited Sender", "Password123!", nil)
@@ -1163,7 +1163,7 @@ func TestPermissionGroupMailLimits(t *testing.T) {
 	if code := user.do("GET", "/api/me", nil, &me); code != http.StatusOK {
 		t.Fatalf("me code=%d user=%+v", code, me.User)
 	}
-	if me.User.Limits.MaxAttachmentMB != 1 || me.User.Limits.SMTPMinuteLimit != 1 || me.User.Limits.IMAPMinuteLimit != 1 || me.User.Limits.POP3MinuteLimit != 1 {
+	if me.User.Limits.MaxAttachmentMB != 1 || me.User.Limits.MaxMailboxCount != 9 || me.User.Limits.SMTPMinuteLimit != 1 || me.User.Limits.IMAPMinuteLimit != 1 || me.User.Limits.POP3MinuteLimit != 1 {
 		t.Fatalf("user limits not attached: %+v", me.User.Limits)
 	}
 
@@ -1350,6 +1350,31 @@ func TestUserMailboxApplicationUsesAllowedDomainsAndReservedPrefixes(t *testing.
 	}
 	if code := userClient.do("POST", "/api/me/mailboxes/apply", map[string]string{"domainId": allowedDomain.ID, "localPart": "alice"}, &errBody); code != http.StatusConflict {
 		t.Fatalf("duplicate apply code=%d body=%v", code, errBody)
+	}
+	limits := defaultPermissionLimits()
+	limits.MaxMailboxCount = 1
+	updateRegularPermissionGroupWithLimits(t, admin, regularUserDefaultPermissions(), limits)
+	if code := userClient.do("POST", "/api/me/mailboxes/apply", map[string]string{"domainId": allowedDomain.ID, "localPart": "bob", "displayName": "Bob"}, &errBody); code != http.StatusForbidden {
+		t.Fatalf("mailbox count limit code=%d body=%v", code, errBody)
+	}
+	var updated AdminUser
+	if code := admin.do("POST", "/api/admin/users/"+created.ID, map[string]any{
+		"displayName":          created.DisplayName,
+		"role":                 "user",
+		"disabled":             false,
+		"mailboxLimitOverride": 2,
+		"permissionGroupIds":   []string{},
+	}, &updated); code != http.StatusOK {
+		t.Fatalf("update user mailbox limit override code=%d user=%+v", code, updated)
+	}
+	if updated.MailboxLimitOverride == nil || *updated.MailboxLimitOverride != 2 || updated.Limits.MaxMailboxCount != 2 {
+		t.Fatalf("user mailbox limit override not attached: %+v", updated.User)
+	}
+	if code := userClient.do("POST", "/api/me/mailboxes/apply", map[string]string{"domainId": allowedDomain.ID, "localPart": "bob", "displayName": "Bob"}, &mailbox); code != http.StatusCreated || mailbox.Address != "bob@a.com" {
+		t.Fatalf("per-user mailbox limit apply code=%d mailbox=%+v", code, mailbox)
+	}
+	if code := userClient.do("POST", "/api/me/mailboxes/apply", map[string]string{"domainId": allowedDomain.ID, "localPart": "carol", "displayName": "Carol"}, &errBody); code != http.StatusForbidden {
+		t.Fatalf("per-user mailbox limit code=%d body=%v", code, errBody)
 	}
 }
 
@@ -3956,11 +3981,11 @@ func TestFixedRolesProtectAdminRoutesAndDefaultAdmin(t *testing.T) {
 		"name":        "Mailbox Viewers",
 		"description": "Can view mailboxes only",
 		"permissions": []string{PermissionAdminOverview, PermissionMailboxesView},
-		"limits":      PermissionLimits{MaxAttachmentMB: 5, SMTPDailyLimit: 8, SMTPMinuteLimit: 2, IMAPMinuteLimit: 5, POP3MinuteLimit: 3},
+		"limits":      PermissionLimits{MaxAttachmentMB: 5, MaxMailboxCount: 4, SMTPDailyLimit: 8, SMTPMinuteLimit: 2, IMAPMinuteLimit: 5, POP3MinuteLimit: 3},
 	}, &customGroup); code != http.StatusCreated {
 		t.Fatalf("custom permission group creation code=%d group=%+v", code, customGroup)
 	}
-	if customGroup.Limits.MaxAttachmentMB != 5 || customGroup.Limits.SMTPDailyLimit != 8 || customGroup.Limits.SMTPMinuteLimit != 2 || customGroup.Limits.IMAPMinuteLimit != 5 || customGroup.Limits.POP3MinuteLimit != 3 {
+	if customGroup.Limits.MaxAttachmentMB != 5 || customGroup.Limits.MaxMailboxCount != 4 || customGroup.Limits.SMTPDailyLimit != 8 || customGroup.Limits.SMTPMinuteLimit != 2 || customGroup.Limits.IMAPMinuteLimit != 5 || customGroup.Limits.POP3MinuteLimit != 3 {
 		t.Fatalf("custom permission group limits=%+v", customGroup.Limits)
 	}
 	if customGroup.System || customGroup.ID == "" || !userHasPermission(&User{Role: "user", Permissions: customGroup.Permissions}, PermissionMailboxesView) || userHasPermission(&User{Role: "user", Permissions: customGroup.Permissions}, PermissionMailboxesCreate) {

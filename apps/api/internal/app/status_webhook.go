@@ -112,7 +112,7 @@ func (a *App) deliverStatusWebhook(ctx context.Context, eventID string, payload 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "LanQin-Email-Webhook/1.0")
+	req.Header.Set("User-Agent", "NewSzxcn-Email-Webhook/1.0")
 	req.Header.Set("X-LanQin-Webhook-Id", eventID)
 	req.Header.Set("X-LanQin-Timestamp", timestamp)
 	req.Header.Set("X-LanQin-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))

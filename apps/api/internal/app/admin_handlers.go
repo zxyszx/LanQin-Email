@@ -49,9 +49,9 @@ func (a *App) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
+	rows, err := a.db.QueryContext(r.Context(), `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
-		GROUP BY u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.created_at
+		GROUP BY u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at
 		ORDER BY u.created_at DESC`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list users")
@@ -62,13 +62,15 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item AdminUser
 		var disabled, twoFactorEnabled int
+		var mailboxLimitOverride sql.NullInt64
 		var created, mailboxCSV string
-		if err := rows.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &created, &item.MailboxCount, &mailboxCSV); err != nil {
+		if err := rows.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to scan users")
 			return
 		}
 		item.Disabled = intBool(disabled)
 		item.TwoFactorEnabled = intBool(twoFactorEnabled)
+		item.MailboxLimitOverride = intPtrFromNull(mailboxLimitOverride)
 		item.CreatedAt = parseTime(created)
 		item.Mailboxes = splitCSV(mailboxCSV)
 		items = append(items, item)
@@ -97,6 +99,7 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Role               string   `json:"role"`
 		Password           string   `json:"password"`
 		Disabled           bool     `json:"disabled"`
+		MailboxLimitOverride *int   `json:"mailboxLimitOverride"`
 		PermissionGroupIDs []string `json:"permissionGroupIds"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -125,6 +128,14 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusForbidden, "only administrators can create administrator users")
 		return
 	}
+	mailboxLimitOverride, err := normalizeMailboxLimitOverride(req.MailboxLimitOverride)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if role == "admin" {
+		mailboxLimitOverride = nil
+	}
 	if len(req.Password) < 8 {
 		badRequest(w, errors.New("password must be at least 8 characters"))
 		return
@@ -142,8 +153,8 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`, id, email, displayName, role, string(passwordHash), boolInt(req.Disabled), now, now); err != nil {
+	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,email,display_name,role,password_hash,disabled,mailbox_limit_override,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`, id, email, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
 		badRequest(w, err)
 		return
 	}
@@ -174,6 +185,7 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		DisplayName        string    `json:"displayName"`
 		Role               string    `json:"role"`
 		Disabled           *bool     `json:"disabled"`
+		MailboxLimitOverride *int    `json:"mailboxLimitOverride"`
 		PermissionGroupIDs *[]string `json:"permissionGroupIds"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -209,6 +221,17 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if a.isDefaultAdminUser(existing) && (role != "admin" || disabled) {
 		badRequest(w, errors.New("default administrator must remain an active super administrator"))
 		return
+	}
+	mailboxLimitOverride := existing.MailboxLimitOverride
+	if req.MailboxLimitOverride != nil {
+		mailboxLimitOverride, err = normalizeMailboxLimitOverride(req.MailboxLimitOverride)
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
+	}
+	if role == "admin" {
+		mailboxLimitOverride = nil
 	}
 	if err := a.ensureAdminRemains(r.Context(), id, role, disabled); err != nil {
 		badRequest(w, err)
@@ -254,8 +277,8 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET display_name=?, role=?, disabled=?, updated_at=? WHERE id=?`,
-		displayName, role, boolInt(disabled), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET display_name=?, role=?, disabled=?, mailbox_limit_override=?, updated_at=? WHERE id=?`,
+		displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update user")
 		return
 	}
@@ -1055,18 +1078,20 @@ func (a *App) domainByID(ctx context.Context, id string) (*Domain, error) {
 }
 
 func (a *App) adminUserByID(ctx context.Context, id string) (*AdminUser, error) {
-	row := a.db.QueryRowContext(ctx, `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
+	row := a.db.QueryRowContext(ctx, `SELECT u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at,COUNT(mb.id),COALESCE(GROUP_CONCAT(mb.address), '')
 		FROM users u LEFT JOIN mailboxes mb ON mb.user_id=u.id
 		WHERE u.id=?
-		GROUP BY u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.created_at`, id)
+		GROUP BY u.id,u.email,u.display_name,u.role,u.disabled,u.two_factor_enabled,u.mailbox_limit_override,u.created_at`, id)
 	var item AdminUser
 	var disabled, twoFactorEnabled int
+	var mailboxLimitOverride sql.NullInt64
 	var created, mailboxCSV string
-	if err := row.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &created, &item.MailboxCount, &mailboxCSV); err != nil {
+	if err := row.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Role, &disabled, &twoFactorEnabled, &mailboxLimitOverride, &created, &item.MailboxCount, &mailboxCSV); err != nil {
 		return nil, err
 	}
 	item.Disabled = intBool(disabled)
 	item.TwoFactorEnabled = intBool(twoFactorEnabled)
+	item.MailboxLimitOverride = intPtrFromNull(mailboxLimitOverride)
 	item.CreatedAt = parseTime(created)
 	item.Mailboxes = splitCSV(mailboxCSV)
 	if err := a.attachUserAuthorization(ctx, &item.User); err != nil {

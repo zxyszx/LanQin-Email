@@ -10,6 +10,7 @@ type User struct {
 	Disabled           bool                     `json:"disabled"`
 	Protected          bool                     `json:"protected"`
 	TwoFactorEnabled   bool                     `json:"twoFactorEnabled"`
+	MailboxLimitOverride *int                   `json:"mailboxLimitOverride,omitempty"`
 	Permissions        []string                 `json:"permissions"`
 	Limits             PermissionLimits         `json:"limits"`
 	PermissionGroupIDs []string                 `json:"permissionGroupIds"`

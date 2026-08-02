@@ -138,6 +138,7 @@ type PermissionGroup struct {
 
 type PermissionLimits struct {
 	MaxAttachmentMB  int `json:"maxAttachmentMb"`
+	MaxMailboxCount  int `json:"maxMailboxCount"`
 	SMTPDailyLimit   int `json:"smtpDailyLimit"`
 	SMTPMinuteLimit  int `json:"smtpMinuteLimit"`
 	IMAPMinuteLimit  int `json:"imapMinuteLimit"`
@@ -147,6 +148,7 @@ type PermissionLimits struct {
 func defaultPermissionLimits() PermissionLimits {
 	return PermissionLimits{
 		MaxAttachmentMB: 25,
+		MaxMailboxCount: 9,
 		SMTPDailyLimit:  200,
 		SMTPMinuteLimit: 20,
 		IMAPMinuteLimit: 200,
@@ -157,6 +159,9 @@ func defaultPermissionLimits() PermissionLimits {
 func normalizePermissionLimits(limits PermissionLimits) (PermissionLimits, error) {
 	if limits.MaxAttachmentMB < 0 {
 		return PermissionLimits{}, errors.New("maxAttachmentMb cannot be negative")
+	}
+	if limits.MaxMailboxCount < 0 {
+		return PermissionLimits{}, errors.New("maxMailboxCount cannot be negative")
 	}
 	if limits.SMTPDailyLimit < 0 {
 		return PermissionLimits{}, errors.New("smtpDailyLimit cannot be negative")
@@ -171,6 +176,17 @@ func normalizePermissionLimits(limits PermissionLimits) (PermissionLimits, error
 		return PermissionLimits{}, errors.New("pop3MinuteLimit cannot be negative")
 	}
 	return limits, nil
+}
+
+func normalizeMailboxLimitOverride(value *int) (*int, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if *value < 0 {
+		return nil, errors.New("mailboxLimitOverride cannot be negative")
+	}
+	normalized := *value
+	return &normalized, nil
 }
 
 func decodeStoredLimits(value string) PermissionLimits {
@@ -198,6 +214,7 @@ func encodePermissionLimits(limits PermissionLimits) string {
 func mergePermissionLimits(left, right PermissionLimits) PermissionLimits {
 	return PermissionLimits{
 		MaxAttachmentMB:  mergeLimitValue(left.MaxAttachmentMB, right.MaxAttachmentMB),
+		MaxMailboxCount:  mergeLimitValue(left.MaxMailboxCount, right.MaxMailboxCount),
 		SMTPDailyLimit:   mergeLimitValue(left.SMTPDailyLimit, right.SMTPDailyLimit),
 		SMTPMinuteLimit:  mergeLimitValue(left.SMTPMinuteLimit, right.SMTPMinuteLimit),
 		IMAPMinuteLimit:  mergeLimitValue(left.IMAPMinuteLimit, right.IMAPMinuteLimit),
@@ -221,6 +238,7 @@ func minimalLimits() PermissionLimits {
 	// when no group has a limit set for a given field.
 	return PermissionLimits{
 		MaxAttachmentMB: 1,
+		MaxMailboxCount: 1,
 		SMTPDailyLimit:  1,
 		SMTPMinuteLimit: 1,
 		IMAPMinuteLimit: 1,
@@ -236,6 +254,7 @@ func actorCanGrantLimits(actor *User, limits PermissionLimits) bool {
 		return true
 	}
 	return canGrantLimitValue(actor.Limits.MaxAttachmentMB, limits.MaxAttachmentMB) &&
+		canGrantLimitValue(actor.Limits.MaxMailboxCount, limits.MaxMailboxCount) &&
 		canGrantLimitValue(actor.Limits.SMTPDailyLimit, limits.SMTPDailyLimit) &&
 		canGrantLimitValue(actor.Limits.SMTPMinuteLimit, limits.SMTPMinuteLimit) &&
 		canGrantLimitValue(actor.Limits.IMAPMinuteLimit, limits.IMAPMinuteLimit) &&
@@ -292,20 +311,20 @@ var permissionCatalogItems = []PermissionInfo{
 	{Key: PermissionMailRules, Label: "管理收件规则", Description: "查看、新增和删除本人的收件规则。", Category: "个人中心"},
 	{Key: PermissionMailBlocked, Label: "管理拦截名单", Description: "查看、新增和删除本人的发件人拦截规则。", Category: "个人中心"},
 	{Key: PermissionMailStats, Label: "查看邮箱统计", Description: "查看本人邮箱统计和清理概览。", Category: "个人中心"},
-	{Key: PermissionMailboxApply, Label: "自助申请邮箱", Description: "在开放申请时为本人申请邮箱账号。", Category: "个人中心"},
+		{Key: PermissionMailboxApply, Label: "自助申请邮箱", Description: "在开放申请时为本人申请邮箱。", Category: "个人中心"},
 
-	{Key: PermissionAdminOverview, Label: "查看概览", Description: "查看后台统计和首次配置检查。", Category: "概览"},
+		{Key: PermissionAdminOverview, Label: "查看概览", Description: "查看后台统计和首次配置检查。", Category: "概览"},
 
-	{Key: PermissionUsersView, Label: "查看用户", Description: "查看用户列表、状态和绑定邮箱。", Category: "用户"},
-	{Key: PermissionUsersCreate, Label: "创建用户", Description: "创建普通用户并分配权限组。", Category: "用户"},
-	{Key: PermissionUsersUpdate, Label: "编辑用户", Description: "修改用户显示名称、状态和权限组。", Category: "用户"},
-	{Key: PermissionUsersDelete, Label: "删除用户", Description: "删除非受保护用户。", Category: "用户"},
-	{Key: PermissionUsersResetPassword, Label: "重置用户密码", Description: "为用户重置登录密码。", Category: "用户"},
+		{Key: PermissionUsersView, Label: "查看账号", Description: "查看账号列表、状态、邮箱数量上限和绑定邮箱。", Category: "账号管理"},
+		{Key: PermissionUsersCreate, Label: "创建账号", Description: "创建普通账号并分配权限配额。", Category: "账号管理"},
+		{Key: PermissionUsersUpdate, Label: "编辑账号", Description: "修改账号显示名称、状态、邮箱数量上限和权限配额。", Category: "账号管理"},
+		{Key: PermissionUsersDelete, Label: "删除账号", Description: "删除非受保护账号。", Category: "账号管理"},
+		{Key: PermissionUsersResetPassword, Label: "重置账号密码", Description: "为账号重置登录密码。", Category: "账号管理"},
 
-	{Key: PermissionGroupsView, Label: "查看权限组", Description: "查看权限组、权限目录和使用人数。", Category: "权限组"},
-	{Key: PermissionGroupsCreate, Label: "创建权限组", Description: "创建自定义权限组。", Category: "权限组"},
-	{Key: PermissionGroupsUpdate, Label: "编辑权限组", Description: "修改自定义权限组名称、说明和权限。", Category: "权限组"},
-	{Key: PermissionGroupsDelete, Label: "删除权限组", Description: "删除未被用户使用的自定义权限组。", Category: "权限组"},
+		{Key: PermissionGroupsView, Label: "查看权限配额", Description: "查看权限配额、权限目录和使用人数。", Category: "权限配额"},
+		{Key: PermissionGroupsCreate, Label: "创建权限配额", Description: "创建自定义权限配额。", Category: "权限配额"},
+		{Key: PermissionGroupsUpdate, Label: "编辑权限配额", Description: "修改自定义权限配额名称、说明、功能权限和额度。", Category: "权限配额"},
+		{Key: PermissionGroupsDelete, Label: "删除权限配额", Description: "删除未被账号使用的自定义权限配额。", Category: "权限配额"},
 
 	{Key: PermissionDomainsView, Label: "查看域名", Description: "查看邮件域名和 DKIM 配置。", Category: "域名"},
 	{Key: PermissionDomainsCreate, Label: "添加域名", Description: "添加新的邮件域名。", Category: "域名"},
@@ -315,15 +334,15 @@ var permissionCatalogItems = []PermissionInfo{
 	{Key: PermissionDNSView, Label: "查看 DNS", Description: "查看域名需要配置的 DNS 记录。", Category: "DNS"},
 	{Key: PermissionDNSCheck, Label: "执行 DNS 检测", Description: "触发 MX、SPF、DKIM、DMARC 检测。", Category: "DNS"},
 
-	{Key: PermissionMailboxesView, Label: "查看邮箱账号", Description: "查看邮箱账号列表和归属用户。", Category: "邮箱账号"},
-	{Key: PermissionMailboxesCreate, Label: "创建邮箱账号", Description: "创建邮箱账号并准备归属用户。", Category: "邮箱账号"},
-	{Key: PermissionMailboxesUpdate, Label: "编辑邮箱账号", Description: "修改邮箱归属、显示名、配额和状态。", Category: "邮箱账号"},
-	{Key: PermissionMailboxesDelete, Label: "删除邮箱账号", Description: "删除邮箱账号及关联邮件文件。", Category: "邮箱账号"},
+		{Key: PermissionMailboxesView, Label: "查看邮箱", Description: "查看邮箱列表和归属账号。", Category: "邮箱管理"},
+		{Key: PermissionMailboxesCreate, Label: "创建邮箱", Description: "创建邮箱并准备归属账号。", Category: "邮箱管理"},
+		{Key: PermissionMailboxesUpdate, Label: "编辑邮箱", Description: "修改邮箱归属、显示名、配额和状态。", Category: "邮箱管理"},
+		{Key: PermissionMailboxesDelete, Label: "删除邮箱", Description: "删除邮箱及关联邮件文件。", Category: "邮箱管理"},
 
-	{Key: PermissionAliasesView, Label: "查看别名转发", Description: "查看别名转发规则。", Category: "别名转发"},
-	{Key: PermissionAliasesCreate, Label: "创建别名转发", Description: "创建新的别名转发。", Category: "别名转发"},
-	{Key: PermissionAliasesUpdate, Label: "编辑别名转发", Description: "修改别名转发来源、目标和启用状态。", Category: "别名转发"},
-	{Key: PermissionAliasesDelete, Label: "删除别名转发", Description: "删除别名转发规则。", Category: "别名转发"},
+		{Key: PermissionAliasesView, Label: "查看邮件转发", Description: "查看邮件转发规则。", Category: "邮件转发"},
+		{Key: PermissionAliasesCreate, Label: "创建邮件转发", Description: "创建新的邮件转发规则。", Category: "邮件转发"},
+		{Key: PermissionAliasesUpdate, Label: "编辑邮件转发", Description: "修改邮件转发来源、目标和启用状态。", Category: "邮件转发"},
+		{Key: PermissionAliasesDelete, Label: "删除邮件转发", Description: "删除邮件转发规则。", Category: "邮件转发"},
 
 	{Key: PermissionMessagesView, Label: "查看邮件列表", Description: "查看全局邮件列表和搜索结果。", Category: "邮件审计"},
 	{Key: PermissionMessagesRead, Label: "查看邮件正文", Description: "查看任意邮箱及未注册收件人的邮件正文。", Category: "邮件审计"},
@@ -435,8 +454,8 @@ func defaultPermissionGroups() []PermissionGroup {
 	return []PermissionGroup{
 		{
 			ID:          PermissionGroupSuperAdmin,
-			Name:        "超级管理员",
-			Description: "拥有全部后台权限，由用户身份决定，不通过权限组分配。",
+				Name:        "管理员",
+				Description: "拥有全部后台权限，由账号身份决定，不通过权限配额分配。",
 			Permissions: allPermissionKeys(),
 			Limits:      PermissionLimits{},
 			System:      true,
@@ -611,6 +630,9 @@ func (a *App) attachUserAuthorization(ctx context.Context, u *User) error {
 	}
 	u.Permissions = permissions
 	u.Limits = limits
+	if u.Role != "admin" && u.MailboxLimitOverride != nil {
+		u.Limits.MaxMailboxCount = *u.MailboxLimitOverride
+	}
 	u.PermissionGroupIDs = groupIDs
 	u.PermissionGroups = groups
 	u.Protected = a.isDefaultAdminUser(u)
@@ -769,7 +791,7 @@ func (a *App) effectiveLimitsForUserGroups(ctx context.Context, tx *sql.Tx, grou
 
 func (a *App) permissionGroupsForUser(ctx context.Context, userID, role string) ([]string, []PermissionGroupSummary, error) {
 	if role == "admin" {
-		group := PermissionGroupSummary{ID: PermissionGroupSuperAdmin, Name: "超级管理员"}
+		group := PermissionGroupSummary{ID: PermissionGroupSuperAdmin, Name: "管理员"}
 		return []string{group.ID}, []PermissionGroupSummary{group}, nil
 	}
 	ids := []string{PermissionGroupRegular}

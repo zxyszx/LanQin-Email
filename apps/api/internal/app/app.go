@@ -129,6 +129,7 @@ func (a *App) migrate(ctx context.Context) error {
 			password_hash TEXT NOT NULL,
 			two_factor_secret TEXT NOT NULL DEFAULT '',
 			two_factor_enabled INTEGER NOT NULL DEFAULT 0,
+			mailbox_limit_override INTEGER,
 			disabled INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
@@ -138,7 +139,7 @@ func (a *App) migrate(ctx context.Context) error {
 			name TEXT NOT NULL UNIQUE,
 			description TEXT NOT NULL DEFAULT '',
 			permissions_json TEXT NOT NULL DEFAULT '[]',
-			limits_json TEXT NOT NULL DEFAULT '{"maxAttachmentMb":25,"smtpDailyLimit":200,"smtpMinuteLimit":20,"imapMinuteLimit":200,"pop3MinuteLimit":150}',
+			limits_json TEXT NOT NULL DEFAULT '{"maxAttachmentMb":25,"maxMailboxCount":9,"smtpDailyLimit":200,"smtpMinuteLimit":20,"imapMinuteLimit":200,"pop3MinuteLimit":150}',
 			system INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
@@ -603,6 +604,9 @@ func (a *App) migrate(ctx context.Context) error {
 	if err := a.migrateUsersForTwoFactor(ctx); err != nil {
 		return err
 	}
+	if err := a.migrateUserMailboxLimitOverride(ctx); err != nil {
+		return err
+	}
 	if err := a.migrateMailRulesBuilder(ctx); err != nil {
 		return err
 	}
@@ -852,7 +856,7 @@ func (a *App) migratePermissionGroupLimits(ctx context.Context) error {
 	if hasLimits {
 		return nil
 	}
-	_, err = a.db.ExecContext(ctx, `ALTER TABLE permission_groups ADD COLUMN limits_json TEXT NOT NULL DEFAULT '{"maxAttachmentMb":25,"smtpDailyLimit":200,"smtpMinuteLimit":20,"imapMinuteLimit":200,"pop3MinuteLimit":150}'`)
+	_, err = a.db.ExecContext(ctx, `ALTER TABLE permission_groups ADD COLUMN limits_json TEXT NOT NULL DEFAULT '{"maxAttachmentMb":25,"maxMailboxCount":9,"smtpDailyLimit":200,"smtpMinuteLimit":20,"imapMinuteLimit":200,"pop3MinuteLimit":150}'`)
 	return err
 }
 
@@ -1050,6 +1054,36 @@ func (a *App) migrateUsersForTwoFactor(ctx context.Context) error {
 	return nil
 }
 
+func (a *App) migrateUserMailboxLimitOverride(ctx context.Context) error {
+	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(users)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasColumn := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dflt any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "mailbox_limit_override" {
+			hasColumn = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = a.db.ExecContext(ctx, `ALTER TABLE users ADD COLUMN mailbox_limit_override INTEGER`)
+	return err
+}
+
 func (a *App) migrateMessagesForUnregistered(ctx context.Context) error {
 	rows, err := a.db.QueryContext(ctx, `PRAGMA table_info(messages)`)
 	if err != nil {
@@ -1228,7 +1262,7 @@ func (a *App) seed(ctx context.Context) error {
 		return errors.New("invalid admin email")
 	}
 	if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,email,display_name,role,password_hash,disabled,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`, userID, adminEmail, "LanQin Admin", "admin", string(passwordHash), 0, now, now); err != nil {
+		VALUES(?,?,?,?,?,?,?,?)`, userID, adminEmail, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
 		return err
 	}
 	a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "email", adminEmail)
@@ -1389,7 +1423,7 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 		return err
 	}
 	now := a.now().UTC()
-	subject := "欢迎使用 LanQin Email"
+	subject := "欢迎使用 NewSzxcn 邮箱"
 	bodyText := "你的自建邮箱 Webmail 已经初始化完成。请尽快修改默认管理员密码，并配置 MX/SPF/DKIM/DMARC。"
 	bodyHTML := "<p>你的自建邮箱 Webmail 已经初始化完成。</p><p>请尽快修改默认管理员密码，并配置 MX/SPF/DKIM/DMARC。</p>"
 	if tpl, err := a.mailTemplate(ctx, "welcome"); err == nil {
@@ -1409,7 +1443,7 @@ func (a *App) seedWelcomeMessage(ctx context.Context, mailboxID string) error {
 		MessageID:  fmt.Sprintf("<%s@lanqin.local>", newID("msg")),
 		Subject:    subject,
 		From:       "system@lanqin.local",
-		FromName:   "LanQin Email",
+		FromName:   "NewSzxcn 邮箱",
 		To:         []string{a.cfg.AdminEmail},
 		SentAt:     now,
 		ReceivedAt: now,

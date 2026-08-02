@@ -88,6 +88,17 @@ func (a *App) handleApplyMailbox(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusConflict, "该邮箱地址已被占用")
 		return
 	}
+	if user.Role != "admin" && user.Limits.MaxMailboxCount > 0 {
+		var ownedCount int
+		if err := a.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM mailboxes WHERE user_id=? AND status='active'`, user.ID).Scan(&ownedCount); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to check mailbox quota")
+			return
+		}
+		if ownedCount >= user.Limits.MaxMailboxCount {
+			respondError(w, http.StatusForbidden, "邮箱数量已达上限")
+			return
+		}
+	}
 
 	var passwordHash string
 	if err := a.db.QueryRowContext(r.Context(), `SELECT password_hash FROM users WHERE id=? AND disabled=0`, user.ID).Scan(&passwordHash); err != nil {

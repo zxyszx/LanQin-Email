@@ -1076,7 +1076,7 @@ export function MailPage() {
       <SidebarHeader className={cn("pb-2 pt-3", sidebarCollapsed ? "px-2" : "px-3")}>
         <AccountHeader
           collapsed={sidebarCollapsed}
-          name={me.data?.user.displayName || selectedMailbox?.address || "LanQin"}
+          name={me.data?.user.displayName || selectedMailbox?.address || "NewSzxcn"}
           email={me.data?.user.email || selectedMailbox?.address}
           darkMode={darkMode}
           onToggleTheme={() => setDarkMode((value) => !value)}
@@ -1084,7 +1084,7 @@ export function MailPage() {
           onLanguageChange={setLanguage}
           onSettings={openSettings}
         />
-        <div className={cn("mt-2 flex gap-1.5", sidebarCollapsed && "justify-center")}>
+        <div className={cn("mt-2 gap-1.5", sidebarCollapsed ? "flex justify-center" : "grid grid-cols-[minmax(0,1fr)_2rem]")}>
           <MailboxSwitcher
             collapsed={sidebarCollapsed}
             mailboxes={mailboxList.data?.items || []}
@@ -1094,8 +1094,19 @@ export function MailPage() {
             unreadCount={mailboxUnreadCount}
             onSelect={switchMailbox}
           />
-          {!sidebarCollapsed && !isAllMailboxSelected && (
-            <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background" onClick={copyCurrentMailbox} disabled={!selectedMailbox} aria-label="复制邮箱地址">
+          {!sidebarCollapsed && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={cn("h-8 w-8 shrink-0 rounded-md bg-background shadow-none hover:bg-background", isAllMailboxSelected && "invisible pointer-events-none")}
+              onClick={copyCurrentMailbox}
+              disabled={!selectedMailbox || isAllMailboxSelected}
+              aria-label="复制邮箱地址"
+              aria-hidden={isAllMailboxSelected}
+              tabIndex={isAllMailboxSelected ? -1 : 0}
+              title="复制邮箱地址"
+            >
               <Copy className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -3117,7 +3128,7 @@ function MailboxSwitcher({ collapsed, mailboxes, selectedMailboxId, selectedMail
         align="start"
         className={cn(
           "max-w-[calc(100vw-32px)] p-1",
-          collapsed ? "w-[204px]" : "w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)]"
+          collapsed ? "w-[204px]" : "w-[calc(var(--radix-dropdown-menu-trigger-width)+2.375rem)] min-w-[calc(var(--radix-dropdown-menu-trigger-width)+2.375rem)]"
         )}
       >
         {mailboxes.length > 0 && (
@@ -3622,7 +3633,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
     const allowed = maxAttachmentBytes > 0 ? nextFiles.filter((file) => file.size <= maxAttachmentBytes) : nextFiles
     const blockedCount = nextFiles.length - allowed.length
     if (blockedCount > 0) {
-      toast({ title: "附件超过权限组上限", description: `当前单个附件上限 ${maxAttachmentText}` })
+      toast({ title: "附件超过配额上限", description: `当前单个附件上限 ${maxAttachmentText}` })
     }
     if (allowed.length > 0) {
       setAttachmentsTouched(true)
@@ -3633,7 +3644,7 @@ function ComposeDialog({ mailbox, open, draft, limits, canSend, canManageDrafts,
   function attachmentsWithinLimit() {
     if (maxAttachmentBytes <= 0) return true
     if (files.every((file) => file.size <= maxAttachmentBytes)) return true
-    toast({ title: "附件超过权限组上限", description: `当前单个附件上限 ${maxAttachmentText}` })
+    toast({ title: "附件超过配额上限", description: `当前单个附件上限 ${maxAttachmentText}` })
     return false
   }
 
@@ -4628,7 +4639,7 @@ function scheduleToIcs(schedule: ScheduleDraft) {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//LanQin Email//Webmail//CN",
+    "PRODID:-//NewSzxcn Email//Webmail//CN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",

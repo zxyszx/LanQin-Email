@@ -320,7 +320,7 @@ export function ProfilePage() {
   const sidebarContent = (
     <aside className="flex h-full w-[256px] shrink-0 flex-col border-r border-border bg-card">
       <div className="h-[64px] border-b">
-        <AccountHeader name={user.displayName || selectedMailbox?.address || "LanQin"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
+        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-2 pt-2 text-xs font-medium text-muted-foreground">管理</div>
@@ -603,7 +603,6 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
       <SettingsCard title="账号信息">
         <div className="space-y-5">
           <InfoLine label="用户名" value={accountName} />
-          <InfoLine label="NewSzxcn ID" value={user.id.slice(0, 8)} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
             <Label className="text-base font-normal text-muted-foreground">时区</Label>
             <select className="h-[29px] rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring sm:ml-auto sm:w-[236px]" defaultValue="Asia/Shanghai">
@@ -628,7 +627,7 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
 
       <SettingsCard title="账号配额" action={<span className="pt-1 text-sm text-muted-foreground">实时按当前账号配置计算</span>}>
         <div className="grid gap-3 md:grid-cols-2">
-          <QuotaBox title="邮箱创建" lines={[`当前拥有 ${mailboxes.length} 个邮箱`, "近 7 天创建/分配按权限组计算", "达到上限后会触发冷却"]} highlight="等级额度" />
+          <QuotaBox title="邮箱创建" lines={[`当前拥有 ${mailboxes.length} 个邮箱`, user.limits?.maxMailboxCount ? `最多可添加 ${user.limits.maxMailboxCount} 个邮箱` : "管理员不限制邮箱数量", user.limits?.maxMailboxCount ? "达到上限后不可继续自助申请" : "可继续添加邮箱"]} highlight={user.limits?.maxMailboxCount ? "普通额度" : "管理员无限"} />
           <QuotaBox title="验证邮箱" lines={["已绑定主账号邮箱", "可继续添加验证邮箱"]} />
           <QuotaBox title="发信频率" lines={[`每 24 小时 最多 ${user.limits?.smtpDailyLimit || "不限"} 封邮件`, `每分钟最多 ${user.limits?.smtpMinuteLimit || "不限"} 封`]} />
           <QuotaBox title="协议访问频率" lines={[`IMAP：每 1 分钟 最多 ${user.limits?.imapMinuteLimit || "不限"} 次命令`, `POP3：每 1 分钟 最多 ${user.limits?.pop3MinuteLimit || "不限"} 次命令`]} />
@@ -1184,7 +1183,7 @@ function ProfileOverview({ user, profile, password, passwordFormRef, stats, show
                 <ShieldCheck className="h-4 w-4" />
                 角色
               </div>
-              <Badge>{user.role === "admin" ? "超级管理员" : "普通用户"}</Badge>
+              <Badge>{user.role === "admin" ? "管理员" : "普通用户"}</Badge>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
               <span>账号状态</span>
@@ -2090,7 +2089,7 @@ function ClientSettingsSection({ mailboxes, selectedMailboxId, hostname, onSelec
               </div>
             </>
           ) : (
-            <EmptyState text="暂无邮箱账号，创建邮箱后可查看客户端配置" />
+            <EmptyState text="暂无邮箱，创建邮箱后可查看客户端配置" />
           )}
         </CardContent>
       </Card>
@@ -2116,7 +2115,7 @@ function ClientConfigRow({ label, value, security, onCopy }: { label: string; va
 const apiTokenScopeOptions = [
   ["messages:send", "发送邮件"], ["messages:read", "读取邮件与投递状态"], ["messages:manage", "重试或取消发送"],
   ["domains:read", "查看域名"], ["domains:write", "管理域名"], ["mailboxes:read", "查看邮箱"], ["mailboxes:write", "管理邮箱"],
-  ["dns:read", "查看 DNS"], ["dns:check", "执行 DNS 检测"], ["aliases:read", "查看别名"], ["aliases:write", "管理别名"],
+  ["dns:read", "查看 DNS"], ["dns:check", "执行 DNS 检测"], ["aliases:read", "查看邮件转发"], ["aliases:write", "管理邮件转发"],
 ] as const
 
 function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelete, onCopy }: { items: APIToken[]; loading: boolean; pending: boolean; onCreate: (payload: { name: string; expiresAt?: string; scopes: string[] }) => Promise<{ token: string; item: APIToken }>; onUpdate: (id: string, payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] }) => void; onDelete: (id: string) => void; onCopy: (text: string) => void }) {

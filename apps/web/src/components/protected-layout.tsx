@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Outlet, Link, useLocation } from "react-router-dom"
-import { BarChart3, Copy, Globe2, Inbox, LogOut, Mail, Mailbox, Settings, ShieldCheck, Users } from "lucide-react"
+import { BarChart3, ClipboardList, Forward, Globe2, Inbox, LogOut, Mail, Mailbox, Settings, ShieldCheck, UserCog } from "lucide-react"
 import { useMe } from "@/hooks/use-me"
 import { useLogout } from "@/hooks/use-logout"
 import { AuthGuard } from "@/components/auth-guard"
@@ -27,13 +27,14 @@ import {
 } from "@/components/ui/sidebar"
 
 const adminSections: { key: string; label: string; icon: React.ReactNode; permissions: PermissionKey[] }[] = [
-  { key: "overview", label: "概览", icon: <BarChart3 />, permissions: ["admin.overview.view"] },
-  { key: "users", label: "用户", icon: <Users />, permissions: ["admin.users.view"] },
-  { key: "permissionGroups", label: "权限组", icon: <ShieldCheck />, permissions: ["admin.permission_groups.view"] },
-  { key: "domains", label: "域名", icon: <Globe2 />, permissions: ["admin.domains.view", "admin.dns.view"] },
-  { key: "mailboxes", label: "邮箱账号", icon: <Mailbox />, permissions: ["admin.mailboxes.view"] },
-  { key: "aliases", label: "别名转发", icon: <Copy />, permissions: ["admin.aliases.view"] },
+  { key: "overview", label: "数据总览", icon: <BarChart3 />, permissions: ["admin.overview.view"] },
+  { key: "users", label: "账号管理", icon: <UserCog />, permissions: ["admin.users.view"] },
+  { key: "permissionGroups", label: "权限配额", icon: <ShieldCheck />, permissions: ["admin.permission_groups.view"] },
+  { key: "domains", label: "域名管理", icon: <Globe2 />, permissions: ["admin.domains.view", "admin.dns.view"] },
+  { key: "mailboxes", label: "邮箱管理", icon: <Mailbox />, permissions: ["admin.mailboxes.view"] },
+  { key: "aliases", label: "邮件转发", icon: <Forward />, permissions: ["admin.aliases.view"] },
   { key: "messages", label: "全部邮件", icon: <Inbox />, permissions: ["admin.messages.view"] },
+  { key: "sendAudit", label: "发送队列", icon: <ClipboardList />, permissions: ["admin.messages.view"] },
   { key: "settings", label: "系统设置", icon: <Settings />, permissions: ["admin.settings.view", "admin.templates.view"] },
 ]
 
@@ -64,16 +65,16 @@ function ProtectedContent() {
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
-        <SidebarHeader>
+        <SidebarHeader className="border-b">
           <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg" asChild>
                 <Link to="/">
                   <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <Mail className="size-4" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">LanQin Email</span>
+                    <span className="truncate font-semibold">NewSzxcn 邮箱</span>
                   </div>
                 </Link>
               </SidebarMenuButton>
@@ -106,7 +107,7 @@ function ProtectedContent() {
                     <span className="truncate text-xs text-muted-foreground">{user.email}</span>
                   </div>
                   <Badge variant={user.role === "admin" ? "default" : "secondary"} className="ml-auto text-[10px]">
-                    {user.role === "admin" ? "超级管理员" : "普通用户"}
+                    {user.role === "admin" ? "管理员" : "普通用户"}
                   </Badge>
                 </Link>
               </SidebarMenuButton>
@@ -125,7 +126,7 @@ function ProtectedContent() {
           <div className="flex h-12 items-center gap-3 border-b bg-background px-3 md:hidden">
             <SidebarTrigger aria-label="打开导航" />
             <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-              {isAdminRoute ? visibleAdminSections.find((item) => item.key === adminSection)?.label || "系统管理" : "LanQin Email"}
+              {isAdminRoute ? visibleAdminSections.find((item) => item.key === adminSection)?.label || "系统管理" : "NewSzxcn 邮箱"}
             </div>
           </div>
           <Outlet />
