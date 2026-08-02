@@ -11,7 +11,7 @@ import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
 import { useNavigate } from "react-router-dom"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, X } from "lucide-react"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, X } from "lucide-react"
 import { api, ExternalImapAccount, ExternalImapFolder, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
@@ -458,23 +458,6 @@ export function MailPage() {
     onError: (error) => toast({ title: "取消失败", description: error instanceof Error ? error.message : "请稍后重试" }),
     onSettled: () => setSendQueuePendingId(""),
   })
-  const markAllRead = useMutation({
-    mutationFn: async (items: MailMessage[]) => {
-      const unread = items.filter((message) => !message.isRead)
-      await Promise.all(unread.map((message) => api.markRead(message.id, true)))
-      return unread.length
-    },
-    onSuccess: async (count) => {
-      await qc.invalidateQueries({ queryKey: ["messages"] })
-      await qc.invalidateQueries({ queryKey: ["folders"] })
-      await qc.invalidateQueries({ queryKey: ["mailboxes"] })
-      await qc.invalidateQueries({ queryKey: ["mail-stats"] })
-      await qc.invalidateQueries({ queryKey: ["labels"] })
-      toast({ title: count > 0 ? `已标记 ${count} 封邮件为已读` : "当前没有未读邮件" })
-    },
-    onError: (error) => toast({ title: "操作失败", description: error.message }),
-  })
-
   React.useEffect(() => {
     if (!mailboxList.isSuccess) return
     const items = mailboxList.data?.items || []
@@ -1499,8 +1482,6 @@ export function MailPage() {
                   <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
                     <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
                   </Button>
-                  {canOrganizeMail && <Button size="icon" variant="ghost" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)} className="h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground" title="全部已读"><Download className="h-4 w-4" /></Button>}
-                  <Button size="icon" variant="ghost" disabled className="hidden h-7 w-7 text-muted-foreground hover:bg-transparent min-[768px]:inline-flex" title="导入"><Upload className="h-4 w-4" /></Button>
                 </div>
               </div>
             </div>
