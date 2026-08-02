@@ -149,6 +149,44 @@ func normalizeEmail(s string) string {
 	return normalizeLocalPart(parts[0]) + "@" + normalizeDomain(parts[1])
 }
 
+func normalizeLoginName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "@") {
+		return normalizeEmail(s)
+	}
+	return normalizeLocalPart(s)
+}
+
+func cleanLoginName(value string, fallbacks ...string) (string, error) {
+	loginName := normalizeLoginName(value)
+	for _, fallback := range fallbacks {
+		if loginName != "" {
+			break
+		}
+		loginName = normalizeLoginName(fallback)
+	}
+	if loginName == "" {
+		return "", errors.New("登录名不能为空")
+	}
+	if len([]rune(loginName)) > 80 {
+		return "", errors.New("登录名不能超过 80 个字符")
+	}
+	if strings.Contains(loginName, "@") {
+		parts := strings.SplitN(loginName, "@", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return "", errors.New("登录名格式无效")
+		}
+		return loginName, nil
+	}
+	if len([]rune(loginName)) < 2 {
+		return "", errors.New("登录名至少需要 2 个字符")
+	}
+	return loginName, nil
+}
+
 func dedupeEmails(items []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(items))

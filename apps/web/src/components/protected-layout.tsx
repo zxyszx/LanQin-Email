@@ -104,7 +104,7 @@ function ProtectedContent() {
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">{user.displayName}</span>
-                    <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+                    <span className="truncate text-xs text-muted-foreground">{user.loginName || user.email}</span>
                   </div>
                   <Badge variant={user.role === "admin" ? "default" : "secondary"} className="ml-auto text-[10px]">
                     {user.role === "admin" ? "管理员" : "普通用户"}

@@ -58,6 +58,7 @@ const projectTag = import.meta.env.VITE_APP_VERSION || ""
 const projectReleaseUrl = import.meta.env.VITE_RELEASE_URL || (projectTag ? `${projectRepositoryUrl}/releases/tag/${projectTag}` : "")
 const defaultPermissionLimits: PermissionLimits = { maxAttachmentMb: 25, maxMailboxCount: 9, smtpDailyLimit: 200, smtpMinuteLimit: 20, imapMinuteLimit: 200, pop3MinuteLimit: 150 }
 const defaultMailboxLimitOverride = 9
+const accountLoginName = (user: Pick<AdminUser, "email" | "loginName">) => user.loginName || user.email
 
 export function AdminPage() {
   const me = useMe()
@@ -221,7 +222,8 @@ function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permiss
   const canDelete = hasPermission(user, "admin.users.delete")
   const filteredUsers = users.filter((user) => {
     const keyword = query.trim().toLowerCase()
-    const matchesKeyword = !keyword || [user.email, user.displayName, ...(user.mailboxes || [])].some((value) => value.toLowerCase().includes(keyword))
+    const loginName = accountLoginName(user)
+    const matchesKeyword = !keyword || [loginName, user.email, user.displayName, ...(user.mailboxes || [])].some((value) => value.toLowerCase().includes(keyword))
     const matchesRole = roleFilter === "all" || user.role === roleFilter
     const matchesStatus = statusFilter === "all" || (statusFilter === "active" ? !user.disabled : user.disabled)
     return matchesKeyword && matchesRole && matchesStatus
@@ -264,9 +266,9 @@ function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permiss
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate font-medium">{user.displayName}</div>
-                  <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+                  <div className="truncate text-xs text-muted-foreground">{accountLoginName(user)}</div>
                 </div>
-                <UserActions user={user} permissionGroups={permissionGroups} onDelete={canDelete ? () => setPendingConfirm({ title: "删除账号？", description: `将删除 ${user.email} 及其关联数据。`, confirmText: "删除账号", onConfirm: () => remove.mutate(user.id) }) : undefined} />
+                <UserActions user={user} permissionGroups={permissionGroups} onDelete={canDelete ? () => setPendingConfirm({ title: "删除账号？", description: `将删除 ${accountLoginName(user)} 及其关联数据。`, confirmText: "删除账号", onConfirm: () => remove.mutate(user.id) }) : undefined} />
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <RoleBadge user={user} />
@@ -286,14 +288,14 @@ function UsersSection({ users, permissionGroups }: { users: AdminUser[]; permiss
                 <TableRow key={user.id}>
                   <TableCell>
                     <div className="font-medium">{user.displayName}</div>
-                    <div className="text-xs text-muted-foreground">{user.email}</div>
+                    <div className="text-xs text-muted-foreground">{accountLoginName(user)}</div>
                   </TableCell>
                   <TableCell><RoleBadge user={user} /></TableCell>
                   <TableCell><UserPermissionGroupsCell user={user} /></TableCell>
                   <TableCell className="w-[22rem] max-w-[22rem]"><UserMailboxCell user={user} /></TableCell>
                   <TableCell><Badge variant={user.disabled ? "secondary" : "default"}>{user.disabled ? "停用" : "正常"}</Badge></TableCell>
                   <TableCell className="text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</TableCell>
-                  <TableCell><UserActions user={user} permissionGroups={permissionGroups} onDelete={canDelete ? () => setPendingConfirm({ title: "删除账号？", description: `将删除 ${user.email} 及其关联数据。`, confirmText: "删除账号", onConfirm: () => remove.mutate(user.id) }) : undefined} /></TableCell>
+                  <TableCell><UserActions user={user} permissionGroups={permissionGroups} onDelete={canDelete ? () => setPendingConfirm({ title: "删除账号？", description: `将删除 ${accountLoginName(user)} 及其关联数据。`, confirmText: "删除账号", onConfirm: () => remove.mutate(user.id) }) : undefined} /></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1714,7 +1716,7 @@ function invalidateAdmin(qc: ReturnType<typeof useQueryClient>) { qc.invalidateQ
 
 function UserMailboxCell({ user }: { user: AdminUser }) {
   const { toast } = useToast()
-  const loginAddress = user.email
+  const loginAddress = accountLoginName(user)
   const mailboxes = user.mailboxes || []
   const [mailboxQuery, setMailboxQuery] = React.useState("")
   const normalizedQuery = mailboxQuery.trim().toLowerCase()
@@ -1880,7 +1882,7 @@ function CreateUserDialog({ permissionGroups }: { permissionGroups: PermissionGr
   const [permissionGroupIds, setPermissionGroupIds] = React.useState<string[]>([])
   const create = useMutation({
     mutationFn: (form: FormData) => api.createUser({
-      email: String(form.get("email") || ""),
+      loginName: String(form.get("loginName") || ""),
       displayName: String(form.get("displayName") || ""),
       password: String(form.get("password") || ""),
       role,
@@ -1897,7 +1899,7 @@ function CreateUserDialog({ permissionGroups }: { permissionGroups: PermissionGr
       <DialogContent>
         <DialogHeader><DialogTitle>创建账号</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); create.mutate(new FormData(event.currentTarget)) }}>
-          <Field name="email" label="登录邮箱" type="email" placeholder="user@example.com" />
+          <Field name="loginName" label="登录名" type="text" autoComplete="off" placeholder="admin" />
           <Field name="displayName" label="显示名称" placeholder="账号名称" />
           <Field name="password" label="初始密码" type="password" minLength={8} />
           <div className="grid grid-cols-2 gap-3">
@@ -1951,7 +1953,7 @@ function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: 
       <DialogContent>
         <DialogHeader><DialogTitle>编辑账号</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}>
-          <Field name="email" label="登录邮箱" value={user.email} readOnly />
+          <Field name="loginName" label="登录名" value={accountLoginName(user)} readOnly />
           <Field name="displayName" label="显示名称" defaultValue={user.displayName} />
           <div className="grid grid-cols-2 gap-3">
             <SelectField label="身份" value={role} onValueChange={(value) => setRole(value as "admin" | "user")} items={[["user", "普通用户"], ["admin", "管理员"]]} disabled={user.protected} />
@@ -1968,7 +1970,7 @@ function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: 
 
 function ResetPasswordDialog({ user, open, onOpenChange }: { user: AdminUser; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { toast } = useToast(); const mut = useMutation({ mutationFn: (form: FormData) => api.resetUserPassword(user.id, String(form.get("password") || "")), onSuccess: () => { onOpenChange(false); toast({ title: "密码已重置" }) }, onError: (e) => toast({ title: "重置失败", description: e.message }) })
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>重置密码</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)); e.currentTarget.reset() }}><Field name="email" label="账号" value={user.email} readOnly /><Field name="password" label="新密码" type="password" minLength={8} /><DialogFooter><Button disabled={mut.isPending}>{mut.isPending ? "重置中..." : "重置"}</Button></DialogFooter></form></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>重置密码</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)); e.currentTarget.reset() }}><Field name="loginName" label="登录名" value={accountLoginName(user)} readOnly /><Field name="password" label="新密码" type="password" minLength={8} /><DialogFooter><Button disabled={mut.isPending}>{mut.isPending ? "重置中..." : "重置"}</Button></DialogFooter></form></DialogContent></Dialog>
 }
 
 function EditMailboxDialog({ mailbox, users, open, onOpenChange }: { mailbox: MailboxType; users: AdminUser[]; open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -1987,8 +1989,8 @@ function CreateDomainDialog() {
 function CreateMailboxDialog({ domains, users }: { domains: Domain[]; users: AdminUser[] }) {
   const qc = useQueryClient(); const { toast } = useToast(); const [open, setOpen] = React.useState(false); const [domainId, setDomainId] = React.useState(""); const [role, setRole] = React.useState("user"); const [ownerMode, setOwnerMode] = React.useState("new"); const [userId, setUserId] = React.useState("")
   React.useEffect(() => { if (!domainId && domains[0]) setDomainId(domains[0].id); if (!userId && users[0]) setUserId(users[0].id) }, [domains, domainId, users, userId])
-  const mut = useMutation({ mutationFn: (form: FormData) => api.createMailbox({ domainId, localPart: String(form.get("localPart")), displayName: String(form.get("displayName")), password: String(form.get("password")), quotaMb: Number(form.get("quotaMb") || 1024), role: role as "admin" | "user", ownerEmail: String(form.get("ownerEmail") || ""), userId: ownerMode === "existing" ? userId : "" }), onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "邮箱已创建" }) }, onError: (e) => toast({ title: "创建失败", description: e.message }) })
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button><Plus className="h-4 w-4" />邮箱</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>创建邮箱</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><DomainSelect domains={domains} value={domainId} onChange={setDomainId} /><div className="grid grid-cols-2 gap-3"><Field name="localPart" label="账号" placeholder="alice" /><Field name="displayName" label="显示名" placeholder="Alice" /></div><SelectField label="归属方式" value={ownerMode} onValueChange={setOwnerMode} items={[['new','新建/按邮箱匹配账号'],['existing','追加到已有账号']]} />{ownerMode === "existing" ? <SelectField label="已有账号" value={userId} onValueChange={setUserId} items={users.filter((u) => !u.disabled).map((u) => [u.id, u.email])} /> : <Field name="ownerEmail" label="归属账号邮箱" placeholder="留空则使用新邮箱" required={false} />}<div className="grid grid-cols-2 gap-3"><Field name="password" label="密码" type="password" placeholder="至少 8 位" /><Field name="quotaMb" label="配额 MB" type="number" defaultValue="1024" /></div><SelectField label="身份" value={role} onValueChange={setRole} items={[['user','普通用户'],['admin','管理员']]} /><DialogFooter><Button disabled={mut.isPending || !domainId}>创建</Button></DialogFooter></form></DialogContent></Dialog>
+  const mut = useMutation({ mutationFn: (form: FormData) => api.createMailbox({ domainId, localPart: String(form.get("localPart")), displayName: String(form.get("displayName")), password: String(form.get("password")), quotaMb: Number(form.get("quotaMb") || 1024), role: role as "admin" | "user", ownerLoginName: String(form.get("ownerLoginName") || ""), userId: ownerMode === "existing" ? userId : "" }), onSuccess: () => { invalidateAdmin(qc); setOpen(false); toast({ title: "邮箱已创建" }) }, onError: (e) => toast({ title: "创建失败", description: e.message }) })
+  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger asChild><Button><Plus className="h-4 w-4" />邮箱</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>创建邮箱</DialogTitle></DialogHeader><form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}><DomainSelect domains={domains} value={domainId} onChange={setDomainId} /><div className="grid grid-cols-2 gap-3"><Field name="localPart" label="邮箱前缀" placeholder="alice" /><Field name="displayName" label="显示名" placeholder="Alice" /></div><SelectField label="归属方式" value={ownerMode} onValueChange={setOwnerMode} items={[['new','新建/按登录名匹配账号'],['existing','追加到已有账号']]} />{ownerMode === "existing" ? <SelectField label="已有账号" value={userId} onValueChange={setUserId} items={users.filter((u) => !u.disabled).map((u) => [u.id, accountLoginName(u)])} /> : <Field name="ownerLoginName" label="归属登录名" placeholder="留空则使用新邮箱地址" required={false} />}<div className="grid grid-cols-2 gap-3"><Field name="password" label="密码" type="password" placeholder="至少 8 位" /><Field name="quotaMb" label="配额 MB" type="number" defaultValue="1024" /></div><SelectField label="身份" value={role} onValueChange={setRole} items={[['user','普通用户'],['admin','管理员']]} /><DialogFooter><Button disabled={mut.isPending || !domainId}>创建</Button></DialogFooter></form></DialogContent></Dialog>
 }
 
 function CreateAliasDialog({ domains }: { domains: Domain[] }) {

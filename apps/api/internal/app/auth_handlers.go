@@ -11,6 +11,7 @@ import (
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		LoginName      string `json:"loginName"`
 		Email          string `json:"email"`
 		Password       string `json:"password"`
 		TurnstileToken string `json:"turnstileToken"`
@@ -49,14 +50,18 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnauthorized, "人机验证失败，请重试")
 		return
 	}
-	email := normalizeEmail(req.Email)
-	user, passwordHash, err := a.userByEmail(r.Context(), email)
+	loginName, err := cleanLoginName(req.LoginName, req.Email)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "账号或密码错误")
+		return
+	}
+	user, passwordHash, err := a.userByEmail(r.Context(), loginName)
 	if err != nil || user.Disabled {
-		respondError(w, http.StatusUnauthorized, "邮箱或密码错误")
+		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		respondError(w, http.StatusUnauthorized, "邮箱或密码错误")
+		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return
 	}
 	if a.cfg.TwoFactorEnabled && user.TwoFactorEnabled {

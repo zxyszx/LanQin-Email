@@ -94,6 +94,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		LoginName          string   `json:"loginName"`
 		Email              string   `json:"email"`
 		DisplayName        string   `json:"displayName"`
 		Role               string   `json:"role"`
@@ -107,14 +108,14 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := currentUser(r)
-	email := normalizeEmail(req.Email)
-	if email == "" || !strings.Contains(email, "@") {
-		badRequest(w, errors.New("invalid email"))
+	loginName, err := cleanLoginName(req.LoginName, req.Email)
+	if err != nil {
+		badRequest(w, err)
 		return
 	}
 	displayName := strings.TrimSpace(req.DisplayName)
 	if displayName == "" {
-		displayName = email
+		displayName = loginName
 	}
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
@@ -154,7 +155,7 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,email,display_name,role,password_hash,disabled,mailbox_limit_override,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, id, email, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
+		VALUES(?,?,?,?,?,?,?,?,?)`, id, loginName, displayName, role, string(passwordHash), boolInt(req.Disabled), nullableInt(mailboxLimitOverride), now, now); err != nil {
 		badRequest(w, err)
 		return
 	}
@@ -515,14 +516,15 @@ func (a *App) handleListMailboxes(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DomainID    string `json:"domainId"`
-		LocalPart   string `json:"localPart"`
-		DisplayName string `json:"displayName"`
-		Password    string `json:"password"`
-		QuotaMB     int    `json:"quotaMb"`
-		Role        string `json:"role"`
-		OwnerEmail  string `json:"ownerEmail"`
-		UserID      string `json:"userId"`
+		DomainID       string `json:"domainId"`
+		LocalPart      string `json:"localPart"`
+		DisplayName    string `json:"displayName"`
+		Password       string `json:"password"`
+		QuotaMB        int    `json:"quotaMb"`
+		Role           string `json:"role"`
+		OwnerLoginName string `json:"ownerLoginName"`
+		OwnerEmail     string `json:"ownerEmail"`
+		UserID         string `json:"userId"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -591,15 +593,12 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		ownerEmail := normalizeEmail(req.OwnerEmail)
-		if ownerEmail == "" {
-			ownerEmail = address
-		}
-		if !strings.Contains(ownerEmail, "@") {
-			badRequest(w, errors.New("invalid owner email"))
+		ownerLoginName, err := cleanLoginName(req.OwnerLoginName, req.OwnerEmail, address)
+		if err != nil {
+			badRequest(w, err)
 			return
 		}
-		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE email=? AND disabled=0`, ownerEmail).Scan(&userID)
+		err = tx.QueryRowContext(r.Context(), `SELECT id FROM users WHERE email=? AND disabled=0`, ownerLoginName).Scan(&userID)
 		if errors.Is(err, sql.ErrNoRows) {
 			passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 			if err != nil {
@@ -608,11 +607,11 @@ func (a *App) handleCreateMailbox(w http.ResponseWriter, r *http.Request) {
 			}
 			userID = newID("usr")
 			ownerDisplayName := displayName
-			if !strings.EqualFold(ownerEmail, address) {
-				ownerDisplayName = ownerEmail
+			if !strings.EqualFold(ownerLoginName, address) {
+				ownerDisplayName = ownerLoginName
 			}
 			_, err = tx.ExecContext(r.Context(), `INSERT INTO users(id,email,display_name,role,password_hash,disabled,created_at,updated_at)
-				VALUES(?,?,?,?,?,?,?,?)`, userID, ownerEmail, ownerDisplayName, role, string(passwordHash), 0, now, now)
+				VALUES(?,?,?,?,?,?,?,?)`, userID, ownerLoginName, ownerDisplayName, role, string(passwordHash), 0, now, now)
 			if err != nil {
 				badRequest(w, err)
 				return

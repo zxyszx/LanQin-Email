@@ -3,19 +3,20 @@ package app
 import "time"
 
 type User struct {
-	ID                 string                   `json:"id"`
-	Email              string                   `json:"email"`
-	DisplayName        string                   `json:"displayName"`
-	Role               string                   `json:"role"`
-	Disabled           bool                     `json:"disabled"`
-	Protected          bool                     `json:"protected"`
-	TwoFactorEnabled   bool                     `json:"twoFactorEnabled"`
-	MailboxLimitOverride *int                   `json:"mailboxLimitOverride,omitempty"`
-	Permissions        []string                 `json:"permissions"`
-	Limits             PermissionLimits         `json:"limits"`
-	PermissionGroupIDs []string                 `json:"permissionGroupIds"`
-	PermissionGroups   []PermissionGroupSummary `json:"permissionGroups"`
-	CreatedAt          time.Time                `json:"createdAt"`
+	ID                   string                   `json:"id"`
+	LoginName            string                   `json:"loginName"`
+	Email                string                   `json:"email"`
+	DisplayName          string                   `json:"displayName"`
+	Role                 string                   `json:"role"`
+	Disabled             bool                     `json:"disabled"`
+	Protected            bool                     `json:"protected"`
+	TwoFactorEnabled     bool                     `json:"twoFactorEnabled"`
+	MailboxLimitOverride *int                     `json:"mailboxLimitOverride,omitempty"`
+	Permissions          []string                 `json:"permissions"`
+	Limits               PermissionLimits         `json:"limits"`
+	PermissionGroupIDs   []string                 `json:"permissionGroupIds"`
+	PermissionGroups     []PermissionGroupSummary `json:"permissionGroups"`
+	CreatedAt            time.Time                `json:"createdAt"`
 }
 
 type AdminUser struct {

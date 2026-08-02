@@ -13,7 +13,7 @@ virtual_alias_maps = sqlite:/etc/postfix/sqlite-aliases.cf
 virtual_transport = lmtp:inet:dovecot:24
 virtual_mailbox_base = /var/mail/vhosts
 
-smtpd_banner = $myhostname ESMTP LanQin Email
+smtpd_banner = $myhostname ESMTP NewSzxcn Email
 smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
 smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 

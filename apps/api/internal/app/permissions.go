@@ -616,6 +616,9 @@ func (a *App) attachUserAuthorization(ctx context.Context, u *User) error {
 	if u == nil {
 		return nil
 	}
+	if u.LoginName == "" {
+		u.LoginName = u.Email
+	}
 	permissions, err := a.permissionsForUser(ctx, u.ID, u.Role)
 	if err != nil {
 		return err
