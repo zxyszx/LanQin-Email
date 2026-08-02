@@ -1502,8 +1502,8 @@ export function MailPage() {
             </div>
           </div>
           {selectedCountOnPage > 0 && canOrganizeMail && (
-            <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5">
-              <span className="min-w-0 truncate text-[13px] text-muted-foreground">已选 {selectedCountOnPage} 封</span>
+            <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-3 py-1.5">
+              <span className="shrink-0 text-[13px] text-muted-foreground">已选 {selectedCountOnPage} 封</span>
               <BulkActionToolbar pending={bulkPending} currentFolder={folder} folders={folders.data?.items || []} readAction={bulkReadAction} onAction={runBulkAction} onMoveToFolder={runBulkMoveToFolder} />
             </div>
           )}
@@ -2647,8 +2647,8 @@ function CompactMailView({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-      <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      <div className="flex min-h-11 shrink-0 items-center gap-3 border-b px-3 sm:px-4">
+        <div className={cn("flex min-w-0 items-center gap-2.5", selectedIds.length === 0 && "flex-1")}>
           <Checkbox aria-label="选择当前页邮件" checked={allSelected ? true : someSelected ? "indeterminate" : false} onCheckedChange={(value) => onSelectAll(value === true)} />
           <div className="flex min-w-0 items-center gap-2 text-[15px] font-semibold">
             {icon}
@@ -2662,7 +2662,7 @@ function CompactMailView({
               {canOrganize && <BulkActionToolbar pending={bulkPending} onAction={onBulkAction} />}
             </>
           ) : (
-            <div className="text-xs text-muted-foreground">{messages.length} / {total} 封</div>
+            <div className="ml-auto text-xs text-muted-foreground">{messages.length} / {total} 封</div>
           )}
         </div>
       </div>
