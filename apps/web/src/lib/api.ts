@@ -105,6 +105,7 @@ export const api = {
   applyMailbox: (payload: { domainId: string; localPart: string; displayName: string }) => request<Mailbox>("/api/me/mailboxes/apply", { method: "POST", body: JSON.stringify(payload) }),
   forwardingSettings: () => request<ForwardingSettings>("/api/me/forwarding"),
   addForwardingVerifiedEmail: (email: string) => request<ForwardingSettings>("/api/me/forwarding/verified-emails", { method: "POST", body: JSON.stringify({ email }) }),
+  resendForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}/resend`, { method: "POST" }),
   deleteForwardingVerifiedEmail: (id: string) => request<ForwardingSettings>(`/api/me/forwarding/verified-emails/${id}`, { method: "DELETE" }),
   updateAccountForwarding: (targetEmail: string) => request<ForwardingSettings>("/api/me/forwarding/account", { method: "POST", body: JSON.stringify({ targetEmail }) }),
   updateMailboxForwarding: (mailboxId: string, targetEmail: string) => request<ForwardingSettings>(`/api/me/mailboxes/${mailboxId}/forwarding`, { method: "POST", body: JSON.stringify({ targetEmail }) }),

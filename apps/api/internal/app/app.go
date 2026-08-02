@@ -231,7 +231,14 @@ func (a *App) migrate(ctx context.Context) error {
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			email TEXT NOT NULL,
-			verified INTEGER NOT NULL DEFAULT 1,
+			verified INTEGER NOT NULL DEFAULT 0,
+			verified_at TEXT,
+			verification_token_hash TEXT NOT NULL DEFAULT '',
+			verification_sent_at TEXT,
+			verification_expires_at TEXT,
+			delivery_queue_id TEXT NOT NULL DEFAULT '',
+			delivery_status TEXT NOT NULL DEFAULT '',
+			delivery_error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
 			UNIQUE(user_id, email)
@@ -617,6 +624,9 @@ func (a *App) migrate(ctx context.Context) error {
 	if err := a.migrateExternalIMAP(ctx); err != nil {
 		return err
 	}
+	if err := a.migrateForwardingVerification(ctx); err != nil {
+		return err
+	}
 	if err := a.migrateAPITokenScopes(ctx); err != nil {
 		return err
 	}
@@ -624,6 +634,28 @@ func (a *App) migrate(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (a *App) migrateForwardingVerification(ctx context.Context) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{"verified_at", `ALTER TABLE forwarding_verified_emails ADD COLUMN verified_at TEXT`},
+		{"verification_token_hash", `ALTER TABLE forwarding_verified_emails ADD COLUMN verification_token_hash TEXT NOT NULL DEFAULT ''`},
+		{"verification_sent_at", `ALTER TABLE forwarding_verified_emails ADD COLUMN verification_sent_at TEXT`},
+		{"verification_expires_at", `ALTER TABLE forwarding_verified_emails ADD COLUMN verification_expires_at TEXT`},
+		{"delivery_queue_id", `ALTER TABLE forwarding_verified_emails ADD COLUMN delivery_queue_id TEXT NOT NULL DEFAULT ''`},
+		{"delivery_status", `ALTER TABLE forwarding_verified_emails ADD COLUMN delivery_status TEXT NOT NULL DEFAULT ''`},
+		{"delivery_error", `ALTER TABLE forwarding_verified_emails ADD COLUMN delivery_error TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		if err := a.ensureTableColumn(ctx, "forwarding_verified_emails", column.name, column.sql); err != nil {
+			return err
+		}
+	}
+	_, err := a.db.ExecContext(ctx, `UPDATE forwarding_verified_emails SET verified_at=created_at WHERE verified=1 AND (verified_at IS NULL OR verified_at='')`)
+	return err
 }
 
 func (a *App) migrateAPITokenScopes(ctx context.Context) error {

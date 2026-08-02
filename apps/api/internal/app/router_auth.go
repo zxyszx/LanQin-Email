@@ -32,6 +32,7 @@ func (a *App) Router() http.Handler {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/public/settings", a.handlePublicSettings)
+		r.Get("/verify-email", a.handleVerifyForwardingEmail)
 		r.Post("/auth/register", a.handleRegister)
 		r.Post("/auth/login", a.handleLogin)
 		r.Post("/auth/logout", a.handleLogout)
@@ -46,6 +47,7 @@ func (a *App) Router() http.Handler {
 		r.With(a.requireAuth, a.requirePermission(PermissionMailboxApply)).Post("/me/mailboxes/apply", a.handleApplyMailbox)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Get("/me/forwarding", a.handleForwardingSettings)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/verified-emails", a.handleAddForwardingVerifiedEmail)
+		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/verified-emails/{id}/resend", a.handleResendForwardingVerifiedEmail)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Delete("/me/forwarding/verified-emails/{id}", a.handleDeleteForwardingVerifiedEmail)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/forwarding/account", a.handleUpdateAccountForwarding)
 		r.With(a.requireAuth, a.requirePermission(PermissionMailAccess)).Post("/me/mailboxes/{id}/forwarding", a.handleUpdateMailboxForwarding)

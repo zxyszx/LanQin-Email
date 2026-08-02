@@ -25,10 +25,11 @@ const (
 	sendAuditRetry     = "retry"
 	sendAuditCanceled  = "canceled"
 
-	sendSourceWebmail    = "webmail"
-	sendSourceSubmission = "submission"
-	sendSourceOpenAPI    = "open_api"
-	sendSourceForwarding = "forwarding"
+	sendSourceWebmail                = "webmail"
+	sendSourceSubmission             = "submission"
+	sendSourceOpenAPI                = "open_api"
+	sendSourceForwarding             = "forwarding"
+	sendSourceForwardingVerification = "forwarding_verification"
 
 	sendQueueStaleAfter  = 15 * time.Minute
 	sendQueueConcurrency = 4

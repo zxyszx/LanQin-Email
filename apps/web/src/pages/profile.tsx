@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { ArrowLeft, BarChart3, Ban, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Repeat2, Search, SendHorizontal, Settings, Share2, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
-import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
+import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
 import { DisplayMode, useDisplayMode } from "@/lib/display-mode"
@@ -1383,7 +1383,7 @@ function MailboxManagement({
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
   const forwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: mailboxes.length > 0 })
   const verifiedEmailItems = forwarding.data?.verifiedEmails || []
-  const verifiedEmails = React.useMemo(() => verifiedEmailItems.map((item) => item.email), [verifiedEmailItems])
+  const verifiedEmails = React.useMemo(() => verifiedEmailItems.filter((item) => item.verified).map((item) => item.email), [verifiedEmailItems])
   const mailboxForwards = React.useMemo<Record<string, string>>(() => {
     const next: Record<string, string> = {}
     for (const rule of forwarding.data?.mailboxRules || []) {
@@ -1406,9 +1406,26 @@ function MailboxManagement({
       setForwardingCache(settings)
       addLog("添加验证邮箱", email)
       setVerifiedEmailDraft("")
-      toast({ title: "验证邮箱已添加" })
+      const item = settings.verifiedEmails.find((entry) => entry.email.toLowerCase() === email.trim().toLowerCase())
+      toast({
+        title: item?.deliveryStatus === "failed" ? "验证邮箱已添加，邮件发送失败" : "验证邮件已发送",
+        description: item?.deliveryStatus === "failed" ? item.deliveryError || "请稍后重发验证邮件" : "请前往目标邮箱点击确认验证",
+      })
     },
     onError: (error) => toast({ title: "添加失败", description: error.message }),
+  })
+  const resendVerifiedEmail = useMutation({
+    mutationFn: ({ id }: { id: string; email: string }) => api.resendForwardingVerifiedEmail(id),
+    onSuccess: (settings, item) => {
+      setForwardingCache(settings)
+      addLog("重发验证邮件", item.email)
+      const next = settings.verifiedEmails.find((entry) => entry.id === item.id)
+      toast({
+        title: next?.deliveryStatus === "failed" ? "重发失败" : "验证邮件已重发",
+        description: next?.deliveryStatus === "failed" ? next.deliveryError || "请稍后再试" : "请前往目标邮箱点击确认验证",
+      })
+    },
+    onError: (error) => toast({ title: "重发失败", description: error.message }),
   })
   const deleteVerifiedEmail = useMutation({
     mutationFn: ({ id }: { id: string; email: string }) => api.deleteForwardingVerifiedEmail(id),
@@ -1440,7 +1457,7 @@ function MailboxManagement({
     },
     onError: (error) => toast({ title: "保存失败", description: error.message }),
   })
-  const forwardingBusy = forwarding.isLoading || addVerifiedEmail.isPending || deleteVerifiedEmail.isPending || saveAccountForwarding.isPending || saveMailboxForwarding.isPending
+  const forwardingBusy = forwarding.isLoading || addVerifiedEmail.isPending || resendVerifiedEmail.isPending || deleteVerifiedEmail.isPending || saveAccountForwarding.isPending || saveMailboxForwarding.isPending
 
   React.useEffect(() => {
     if (!domainOptions.length) return
@@ -1492,7 +1509,7 @@ function MailboxManagement({
   function submitVerifiedEmail(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const value = verifiedEmailDraft.trim()
-    if (!value || verifiedEmails.includes(value)) return
+    if (!value) return
     addVerifiedEmail.mutate(value)
   }
 
@@ -1500,6 +1517,10 @@ function MailboxManagement({
     if (accountForwardTarget === email) setAccountForwardTarget("none")
     if (forwardDraft === email) setForwardDraft("none")
     deleteVerifiedEmail.mutate({ id, email })
+  }
+
+  function resendVerification(item: ForwardingVerifiedEmail) {
+    resendVerifiedEmail.mutate({ id: item.id, email: item.email })
   }
 
   function confirmLocalAction(action: string, mailbox: Mailbox, destructive = false) {
@@ -1593,7 +1614,7 @@ function MailboxManagement({
           <h2 className="text-lg font-semibold leading-7">邮件转发</h2>
           <Button type="button" variant="outline" size="sm" onClick={() => setVerifiedDialogOpen(true)}>管理验证邮箱</Button>
         </div>
-        <div className="rounded-lg bg-background">
+        <div className="rounded-xl bg-muted/20 px-5 py-5">
           <div className="mb-3 text-sm font-medium">账号级转发</div>
           <div className="mb-4 text-sm text-muted-foreground">对所有邮箱生效，邮箱单独设置优先级更高</div>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_72px]">
@@ -1607,6 +1628,19 @@ function MailboxManagement({
             <Button type="button" className="h-[37px]" disabled={forwardingBusy} onClick={() => saveAccountForwarding.mutate(accountForwardTarget === "none" ? "" : accountForwardTarget)}>{saveAccountForwarding.isPending ? "保存中" : "保存"}</Button>
           </div>
         </div>
+        {verifiedEmailItems.length > 0 && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            {verifiedEmailItems.map((item) => {
+              const tone = forwardingEmailTone(item)
+              return (
+                <span key={item.id} className={cn("inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-sm", tone.chipClass)}>
+                  <span className={cn("size-2 shrink-0 rounded-full", tone.dotClass)} />
+                  <span className="min-w-0 truncate">{item.email} · {tone.shortLabel}</span>
+                </span>
+              )
+            })}
+          </div>
+        )}
         {verifiedEmails.length === 0 && <p className="mt-4 text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
         <p className="mt-3 text-sm text-muted-foreground">提示：每个邮箱可单独设置转发（点击邮箱列表中的「转发」按钮），单独设置会覆盖账号级配置。</p>
       </section>
@@ -1663,28 +1697,44 @@ function MailboxManagement({
       </Dialog>
 
       <Dialog open={verifiedDialogOpen} onOpenChange={setVerifiedDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>管理验证邮箱</DialogTitle></DialogHeader>
-          <form className="flex gap-2" onSubmit={submitVerifiedEmail}>
-            <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-[37px] flex-1" placeholder="输入邮箱地址" disabled={forwardingBusy} />
-            <Button className="h-[37px] px-4" disabled={forwardingBusy || !verifiedEmailDraft.trim()}>{addVerifiedEmail.isPending ? "添加中" : "添加"}</Button>
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[640px]">
+          <DialogHeader className="px-8 pt-8">
+            <DialogTitle className="text-2xl leading-8">验证邮箱管理</DialogTitle>
+          </DialogHeader>
+          <div className="px-8 pt-5 text-[17px] leading-8 text-muted-foreground">
+            添加并验证外部邮箱地址后，才能用作转发目标。这里只展示投递状态摘要，不展示验证邮件内容。
+          </div>
+          <form className="grid gap-3 px-8 pt-6 sm:grid-cols-[minmax(0,1fr)_96px]" onSubmit={submitVerifiedEmail}>
+            <Input type="email" value={verifiedEmailDraft} onChange={(event) => setVerifiedEmailDraft(event.target.value)} className="h-12 text-base shadow-none" placeholder="输入邮箱地址" disabled={forwardingBusy} />
+            <Button className="h-12 px-0 text-base" disabled={forwardingBusy || !verifiedEmailDraft.trim()}>{addVerifiedEmail.isPending ? "添加中" : "添加"}</Button>
           </form>
-          <div className="space-y-2">
+          <div className="mx-8 mt-6 max-h-[360px] overflow-y-auto rounded-lg border">
             {verifiedEmailItems.map((item) => (
-              <div key={item.id} className="flex h-10 items-center justify-between gap-3 rounded-md border px-3 text-sm">
-                <span className="min-w-0 truncate">{item.email}</span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="secondary" className="h-5 rounded-md px-1.5 text-[10px]">{item.verified ? "已验证" : "待验证"}</Badge>
-                  <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" disabled={forwardingBusy} onClick={() => removeVerifiedEmail(item.id, item.email)} aria-label={`移除 ${item.email}`}>
-                  <X className="h-4 w-4" />
+              <div key={item.id} className="grid min-h-[82px] gap-3 border-b px-4 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <div className="truncate text-lg font-semibold leading-6">{item.email}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{item.verified ? `已验证 - ${formatDateTime(item.verifiedAt || item.createdAt)}` : "待验证"}</div>
+                  {!item.verified && (
+                    <div className={cn("mt-1 text-sm leading-5", forwardingEmailTone(item).detailClass)}>
+                      {forwardingEmailStatusText(item)}
+                    </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center justify-end gap-2">
+                  <span className={cn("size-2.5 rounded-full", forwardingEmailTone(item).dotClass)} />
+                  {!item.verified && (
+                    <Button type="button" variant="outline" className="h-10 px-4" disabled={forwardingBusy} onClick={() => resendVerification(item)}>重发</Button>
+                  )}
+                  <Button type="button" variant="outline" className="h-10 px-4 text-destructive hover:text-destructive" disabled={forwardingBusy} onClick={() => removeVerifiedEmail(item.id, item.email)} aria-label={`移除 ${item.email}`}>
+                    删除
                   </Button>
                 </div>
               </div>
             ))}
-            {verifiedEmails.length === 0 && <div className="py-6 text-center text-sm text-muted-foreground">暂无验证邮箱</div>}
+            {verifiedEmailItems.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">暂无验证邮箱</div>}
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setVerifiedDialogOpen(false)}>关闭</Button>
+          <DialogFooter className="border-t px-8 py-6">
+            <Button type="button" variant="outline" className="h-12 px-8 text-base" onClick={() => setVerifiedDialogOpen(false)}>关闭</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1914,6 +1964,53 @@ function formatDateTime(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
+}
+
+function forwardingEmailTone(item: ForwardingVerifiedEmail) {
+  if (item.verified) {
+    return {
+      shortLabel: "已验证",
+      dotClass: "bg-emerald-500",
+      chipClass: "bg-emerald-100 text-emerald-800",
+      detailClass: "text-emerald-700",
+    }
+  }
+  if (item.deliveryStatus === "failed") {
+    return {
+      shortLabel: "发送失败",
+      dotClass: "bg-destructive",
+      chipClass: "bg-destructive/10 text-destructive",
+      detailClass: "text-destructive",
+    }
+  }
+  if (item.deliveryStatus === "delivered") {
+    return {
+      shortLabel: "待验证",
+      dotClass: "bg-amber-500",
+      chipClass: "bg-amber-100 text-amber-800",
+      detailClass: "text-amber-700",
+    }
+  }
+  return {
+    shortLabel: "待验证",
+    dotClass: "bg-blue-500",
+    chipClass: "bg-blue-100 text-blue-800",
+    detailClass: "text-blue-700",
+  }
+}
+
+function forwardingEmailStatusText(item: ForwardingVerifiedEmail) {
+  const time = item.verificationSentAt ? ` · 最近尝试 ${formatDateTime(item.verificationSentAt)}` : ""
+  if (item.deliveryStatus === "failed") {
+    return `验证邮件发送失败${item.deliveryError ? `：${item.deliveryError}` : ""}${time}`
+  }
+  if (item.deliveryStatus === "delivered") {
+    return `验证邮件已发送，请前往目标邮箱完成验证${time}`
+  }
+  if (item.deliveryStatus === "sending") {
+    return `验证邮件发送中${time}`
+  }
+  return `验证邮件排队发送中${time}`
 }
 
 function dateInputValue(date: Date) {

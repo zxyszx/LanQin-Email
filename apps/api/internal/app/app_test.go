@@ -21,9 +21,12 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	netmail "net/mail"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -217,6 +220,71 @@ func handleFakeSMTPConn(conn net.Conn, received chan<- string) {
 			_, _ = io.WriteString(conn, "250 OK\r\n")
 		}
 	}
+}
+
+type testMIMEHeader interface {
+	Get(string) string
+}
+
+func extractForwardingVerificationToken(t *testing.T, raw string) string {
+	t.Helper()
+	msg, err := netmail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("read verification message: %v", err)
+	}
+	body := extractMIMETextForTest(t, msg.Header, msg.Body)
+	marker := "/api/verify-email?token="
+	idx := strings.Index(body, marker)
+	if idx < 0 {
+		t.Fatalf("verification link not found in body: %q", body)
+	}
+	token := body[idx+len(marker):]
+	if end := strings.IndexAny(token, "\"'<>\r\n\t "); end >= 0 {
+		token = token[:end]
+	}
+	token, _ = url.QueryUnescape(token)
+	if token == "" {
+		t.Fatalf("verification token empty in body: %q", body)
+	}
+	return token
+}
+
+func extractMIMETextForTest(t *testing.T, header testMIMEHeader, body io.Reader) string {
+	t.Helper()
+	contentType := header.Get("Content-Type")
+	mediaType, params, _ := mime.ParseMediaType(contentType)
+	if strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
+		boundary := params["boundary"]
+		if boundary == "" {
+			t.Fatalf("multipart message missing boundary: %s", contentType)
+		}
+		mr := multipart.NewReader(body, boundary)
+		var out strings.Builder
+		for {
+			part, err := mr.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("read mime part: %v", err)
+			}
+			out.WriteString(extractMIMETextForTest(t, part.Header, part))
+			out.WriteString("\n")
+		}
+		return out.String()
+	}
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read mime body: %v", err)
+	}
+	if strings.EqualFold(strings.TrimSpace(header.Get("Content-Transfer-Encoding")), "base64") {
+		decoded, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(string(data)), ""))
+		if err != nil {
+			t.Fatalf("decode mime base64: %v", err)
+		}
+		data = decoded
+	}
+	return string(data)
 }
 
 type testClient struct {
@@ -1645,7 +1713,7 @@ func TestMailSendQueuesSMTPFailureForRetry(t *testing.T) {
 func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	a := newTestApp(t)
 	stopTestWorkers(a)
-	host, port, received := startCapturingSMTP(t, 2)
+	host, port, received := startCapturingSMTP(t, 4)
 	a.cfg.SMTPHost = host
 	a.cfg.SMTPPort = port
 	ts := httptest.NewServer(a.Router())
@@ -1657,15 +1725,67 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 		t.Fatalf("login code=%d body=%v", code, login)
 	}
 	_, mb := defaultAdminUserAndMailbox(t, a)
+	ctx := context.Background()
+	verifyTarget := func(email string) {
+		t.Helper()
+		var settings ForwardingSettings
+		if code := admin.do("POST", "/api/me/forwarding/verified-emails", map[string]string{"email": email}, &settings); code != http.StatusCreated {
+			t.Fatalf("add forwarding target %s code=%d settings=%+v", email, code, settings)
+		}
+		if len(settings.VerifiedEmails) == 0 || settings.VerifiedEmails[0].Verified {
+			t.Fatalf("target should start pending: %+v", settings.VerifiedEmails)
+		}
+		if err := a.processDueSendQueue(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var verificationBody string
+		select {
+		case verificationBody = <-received:
+		case <-time.After(2 * time.Second):
+			t.Fatal("verification email was not relayed")
+		}
+		token := extractForwardingVerificationToken(t, verificationBody)
+		if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
+			t.Fatalf("verify email code=%d", code)
+		}
+		if code := admin.do("GET", "/api/me/forwarding", nil, &settings); code != http.StatusOK {
+			t.Fatalf("reload forwarding settings code=%d", code)
+		}
+		found := false
+		for _, item := range settings.VerifiedEmails {
+			if item.Email == email {
+				found = item.Verified
+			}
+		}
+		if !found {
+			t.Fatalf("target %s was not marked verified: %+v", email, settings.VerifiedEmails)
+		}
+	}
+
 	var settings ForwardingSettings
 	if code := admin.do("POST", "/api/me/forwarding/verified-emails", map[string]string{"email": "account-forward@example.test"}, &settings); code != http.StatusCreated {
 		t.Fatalf("add account forwarding target code=%d settings=%+v", code, settings)
+	}
+	if code := admin.do("POST", "/api/me/forwarding/account", map[string]string{"targetEmail": "account-forward@example.test"}, &settings); code != http.StatusBadRequest {
+		t.Fatalf("unverified account forwarding should be rejected, code=%d settings=%+v", code, settings)
+	}
+	if err := a.processDueSendQueue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var verificationBody string
+	select {
+	case verificationBody = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("account verification email was not relayed")
+	}
+	token := extractForwardingVerificationToken(t, verificationBody)
+	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
+		t.Fatalf("verify account target code=%d", code)
 	}
 	if code := admin.do("POST", "/api/me/forwarding/account", map[string]string{"targetEmail": "account-forward@example.test"}, &settings); code != http.StatusOK || settings.AccountTargetEmail != "account-forward@example.test" {
 		t.Fatalf("save account forwarding code=%d settings=%+v", code, settings)
 	}
 
-	ctx := context.Background()
 	inboxID, err := a.ensureFolder(ctx, mb.ID, "Inbox")
 	if err != nil {
 		t.Fatal(err)
@@ -1716,9 +1836,7 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 		t.Fatal("account forwarding mail was not relayed")
 	}
 
-	if code := admin.do("POST", "/api/me/forwarding/verified-emails", map[string]string{"email": "mailbox-forward@example.test"}, &settings); code != http.StatusCreated {
-		t.Fatalf("add mailbox forwarding target code=%d settings=%+v", code, settings)
-	}
+	verifyTarget("mailbox-forward@example.test")
 	if code := admin.do("POST", "/api/me/mailboxes/"+mb.ID+"/forwarding", map[string]string{"targetEmail": "mailbox-forward@example.test"}, &settings); code != http.StatusOK {
 		t.Fatalf("save mailbox forwarding code=%d settings=%+v", code, settings)
 	}
