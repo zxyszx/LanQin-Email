@@ -955,6 +955,71 @@ func TestMailRulesConditionGroupsAndActions(t *testing.T) {
 	}
 }
 
+func TestMailRulesForwardingAction(t *testing.T) {
+	a := newTestApp(t)
+	stopTestWorkers(a)
+	a.cfg.SMTPHost = "127.0.0.1"
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("admin login code=%d", code)
+	}
+	domainID := mustDefaultDomainID(t, a)
+	sender := createTestMailbox(t, admin, domainID, "rule-forward-sender", "Rule Forward Sender", "Password123!", nil)
+	recipient := createTestMailbox(t, admin, domainID, "netflix", "Netflix", "Password123!", nil)
+
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	for _, email := range []string{"driver-a@example.test", "driver-b@example.test"} {
+		if _, err := a.db.ExecContext(context.Background(), `INSERT INTO forwarding_verified_emails(id,user_id,email,verified,verified_at,delivery_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+			newID("fwd"), recipient.UserID, email, 1, now, "verified", now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rcpt := &testClient{t: t, server: ts}
+	if code := rcpt.do("POST", "/api/auth/login", map[string]string{"email": recipient.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("recipient login=%d", code)
+	}
+	var rule MailRule
+	rulePayload := map[string]any{
+		"mailboxId":  recipient.ID,
+		"name":       "Netflix 验证码转发",
+		"matchMode":  "all",
+		"conditions": []map[string]string{{"field": "subject", "operator": "contains", "value": "Netflix"}},
+		"actions":    []map[string]string{{"type": "forward", "value": "driver-a@example.test, driver-b@example.test"}},
+	}
+	if code := rcpt.do("POST", "/api/me/rules", rulePayload, &rule); code != http.StatusCreated {
+		t.Fatalf("create forwarding rule code=%d rule=%+v", code, rule)
+	}
+	if len(rule.Actions) != 1 || rule.Actions[0].Type != "forward" || !strings.Contains(rule.Actions[0].Value, "driver-a@example.test") || !strings.Contains(rule.Actions[0].Value, "driver-b@example.test") {
+		t.Fatalf("rule forwarding action not normalized: %+v", rule.Actions)
+	}
+
+	senderClient := &testClient{t: t, server: ts}
+	if code := senderClient.do("POST", "/api/auth/login", map[string]string{"email": sender.Address, "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("sender login=%d", code)
+	}
+	var sent MailMessage
+	if code := senderClient.do("POST", "/api/mail/send", map[string]any{
+		"to":      []string{recipient.Address},
+		"subject": "Netflix 登录验证码",
+		"text":    "验证码 123456",
+	}, &sent); code != http.StatusCreated {
+		t.Fatalf("send code=%d sent=%+v", code, sent)
+	}
+
+	var recipientsJSON, mailFrom string
+	if err := a.db.QueryRow(`SELECT recipients_json,mail_from FROM send_queue WHERE source=?`, sendSourceRuleForwarding).Scan(&recipientsJSON, &mailFrom); err != nil {
+		t.Fatal(err)
+	}
+	if mailFrom != recipient.Address || !strings.Contains(recipientsJSON, "driver-a@example.test") || !strings.Contains(recipientsJSON, "driver-b@example.test") {
+		t.Fatalf("rule forwarding mail_from=%q recipients=%s", mailFrom, recipientsJSON)
+	}
+}
+
 func TestMailRulesMailboxIsolation(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())

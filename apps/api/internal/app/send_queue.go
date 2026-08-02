@@ -29,6 +29,7 @@ const (
 	sendSourceSubmission             = "submission"
 	sendSourceOpenAPI                = "open_api"
 	sendSourceForwarding             = "forwarding"
+	sendSourceRuleForwarding         = "rule_forwarding"
 	sendSourceForwardingVerification = "forwarding_verification"
 
 	sendQueueStaleAfter  = 15 * time.Minute

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, ChevronDown, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Repeat2, Search, SendHorizontal, Settings, Share2, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, ChevronDown, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -29,7 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 
-type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "sharing" | "blocked" | "transfer" | "stats" | "feedback" | "apiTokens"
+type Tab = "profile" | "mailboxes" | "contacts" | "cleanup" | "cleanupQueue" | "rules" | "blocked" | "stats" | "feedback" | "apiTokens"
 type AccountSettingsTab = "account" | "mail" | "clients" | "security"
 type PendingConfirm = { title: string; description?: string; confirmText: string; destructive?: boolean; onConfirm: () => void }
 const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
@@ -39,9 +39,7 @@ const tabs: Record<Tab, { label: string; icon: React.ReactNode }> = {
   cleanup: { label: "邮件清理", icon: <Trash2 className="h-4 w-4" /> },
   cleanupQueue: { label: "待清理邮件", icon: <Clock3 className="h-4 w-4" /> },
   rules: { label: "收信规则", icon: <SlidersHorizontal className="h-4 w-4" /> },
-  sharing: { label: "邮箱共享", icon: <Share2 className="h-4 w-4" /> },
   blocked: { label: "被拦截邮件", icon: <Ban className="h-4 w-4" /> },
-  transfer: { label: "邮箱转让", icon: <Repeat2 className="h-4 w-4" /> },
   stats: { label: "数据统计", icon: <BarChart3 className="h-4 w-4" /> },
   feedback: { label: "反馈", icon: <MessageSquare className="h-4 w-4" /> },
   apiTokens: { label: "开发者", icon: <Code2 className="h-4 w-4" /> },
@@ -53,7 +51,7 @@ const accountSettingTabs: { key: AccountSettingsTab; label: string }[] = [
   { key: "clients", label: "通知与客户端" },
   { key: "security", label: "安全" },
 ]
-const actionLabels: Record<string, string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读" }
+const actionLabels: Record<string, string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "规则转发" }
 
 export function ProfilePage() {
   const me = useMe()
@@ -93,9 +91,7 @@ export function ProfilePage() {
     if (key === "cleanup") return canOrganizeMail
     if (key === "cleanupQueue") return canOrganizeMail
     if (key === "rules") return canManageRules
-    if (key === "sharing") return canAccessMail
     if (key === "blocked") return canManageBlocked
-    if (key === "transfer") return canAccessMail
     if (key === "stats") return canViewStats
     if (key === "feedback") return true
     if (key === "apiTokens") return true
@@ -455,9 +451,7 @@ export function ProfilePage() {
     if (tab === "cleanup") return <CleanupSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} showStats={canViewStats} pending={cleanup.isPending} onCleanup={(target) => cleanup.mutate(target)} />
     if (tab === "cleanupQueue") return <CleanupQueueSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} />
     if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending} />
-    if (tab === "sharing") return <MailboxSharingSection mailboxes={mailboxes.data?.items || []} onCopy={copy} />
     if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? stats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
-    if (tab === "transfer") return <MailboxTransferSection mailboxes={mailboxes.data?.items || []} selectedMailboxId={mailboxId} onSelectMailbox={setMailboxId} />
     if (tab === "stats") return <StatsSection stats={stats.data} mailbox={selectedMailbox} onRefresh={() => stats.refetch()} />
     if (tab === "feedback") return <FeedbackSection />
     if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
@@ -1021,42 +1015,6 @@ function CleanupQueueSection({ mailbox, stats }: { mailbox?: Mailbox; stats?: Ma
         ))}
         {rows.length === 0 && <EmptyState text="暂无待清理邮件" />}
       </div>
-    </SettingsCard>
-  )
-}
-
-function MailboxSharingSection({ mailboxes, onCopy }: { mailboxes: Mailbox[]; onCopy: (text: string) => void }) {
-  return (
-    <SettingsCard title="邮箱共享" subtitle="为需要协作查看的邮箱准备共享入口。">
-      <div className="space-y-3">
-        {mailboxes.map((mailbox) => (
-          <div key={mailbox.id} className="flex items-center justify-between gap-3 rounded-lg border p-4">
-            <div className="min-w-0">
-              <div className="truncate font-medium">{mailbox.address}</div>
-              <div className="text-sm text-muted-foreground">当前未共享</div>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => onCopy(mailbox.address)}>复制邮箱</Button>
-          </div>
-        ))}
-        {mailboxes.length === 0 && <EmptyState text="暂无可共享邮箱" />}
-      </div>
-    </SettingsCard>
-  )
-}
-
-function MailboxTransferSection({ mailboxes, selectedMailboxId, onSelectMailbox }: { mailboxes: Mailbox[]; selectedMailboxId: string; onSelectMailbox: (id: string) => void }) {
-  return (
-    <SettingsCard title="邮箱转让" subtitle="选择邮箱并填写目标账号，提交前请确认目标账号已存在。">
-      <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
-        <Field label="转让邮箱">
-          <Select value={selectedMailboxId || mailboxes[0]?.id || ""} onValueChange={onSelectMailbox}>
-            <SelectTrigger><SelectValue placeholder="选择邮箱" /></SelectTrigger>
-            <SelectContent>{mailboxes.map((mailbox) => <SelectItem key={mailbox.id} value={mailbox.id}>{mailbox.address}</SelectItem>)}</SelectContent>
-          </Select>
-        </Field>
-        <Field label="目标账号"><Input type="email" placeholder="user@example.com" /></Field>
-        <Button type="submit" variant="outline" disabled>提交转让申请</Button>
-      </form>
     </SettingsCard>
   )
 }
@@ -2536,7 +2494,7 @@ const sizeConditionOperators: RuleConditionOperator[] = ["gt", "gte", "lt", "lte
 const dateConditionOperators: RuleConditionOperator[] = ["before", "after", "on", "equals", "not-equals"]
 const conditionFields = Object.keys(conditionFieldLabels) as RuleConditionField[]
 const commonRuleFolders = ["Inbox", "Archive", "Spam", "Trash"]
-const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到" }
+const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "规则转发" }
 
 function RulesSection({ items, mailboxes, labels, open, onOpenChange, onCreate, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onDelete: (id: string) => void; pending: boolean }) {
   return (
@@ -2560,8 +2518,8 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
   const [name, setName] = React.useState("我的规则")
   const [mailboxId, setMailboxId] = React.useState("all")
   const [matchMode, setMatchMode] = React.useState<"all" | "any">("all")
-  const [conditions, setConditions] = React.useState<MailRuleCondition[]>([{ field: "from", operator: "contains", value: "" }])
-  const [actions, setActions] = React.useState<MailRuleAction[]>([{ type: "label", value: labels[0]?.name || "" }])
+  const [conditions, setConditions] = React.useState<MailRuleCondition[]>([{ field: "to", operator: "contains", value: "" }])
+  const [actions, setActions] = React.useState<MailRuleAction[]>([{ type: "forward", value: "" }])
   const [enabled, setEnabled] = React.useState(true)
   const [applyToExisting, setApplyToExisting] = React.useState(false)
   const [stopProcessing, setStopProcessing] = React.useState(false)
@@ -2574,8 +2532,8 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
     setName("我的规则")
     setMailboxId("all")
     setMatchMode("all")
-    setConditions([{ field: "from", operator: "contains", value: "" }])
-    setActions([{ type: "label", value: labels[0]?.name || "" }])
+    setConditions([{ field: "to", operator: "contains", value: "" }])
+    setActions([{ type: "forward", value: "" }])
     setEnabled(true)
     setApplyToExisting(false)
     setStopProcessing(false)
@@ -2595,12 +2553,12 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
     setActions((items) => items.map((item, i) => i === index ? normalizeDraftAction({ ...item, ...patch }, availableLabels) : item))
   }
   function addCondition() { setConditions((items) => [...items, { field: "subject", operator: "contains", value: "" }]) }
-  function addAction() { setActions((items) => [...items, { type: "star" }]) }
+  function addAction() { setActions((items) => [...items, { type: "forward", value: "" }]) }
   function removeCondition(index: number) { setConditions((items) => items.length > 1 ? items.filter((_, i) => i !== index) : items) }
   function removeAction(index: number) { setActions((items) => items.length > 1 ? items.filter((_, i) => i !== index) : items) }
 
   const validConditions = conditions.map((item) => ({ ...item, value: (item.value || "").trim() })).filter((item) => item.field && item.operator && item.value)
-  const validActions = actions.map((item) => normalizeDraftAction(item, availableLabels)).filter((item) => item.type !== "label" || item.value || item.labelId).filter((item) => item.type !== "move" || item.value)
+  const validActions = actions.map((item) => normalizeDraftAction(item, availableLabels)).filter((item) => item.type !== "label" || item.value || item.labelId).filter((item) => item.type !== "move" || item.value).filter((item) => item.type !== "forward" || item.value)
   const canCreate = validConditions.length > 0 && validActions.length > 0 && !pending
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -2715,6 +2673,9 @@ function RuleActionValue({ action, labels, onChange }: { action: MailRuleAction;
       </div>
     )
   }
+  if (action.type === "forward") {
+    return <Textarea value={action.value || ""} onChange={(event) => onChange({ value: event.target.value })} className="min-h-[74px] resize-y" placeholder="friend1@example.com, friend2@example.com" />
+  }
   return <Input value="无需填写" readOnly />
 }
 
@@ -2748,6 +2709,7 @@ function normalizeDraftAction(action: MailRuleAction, labels: MailLabel[]): Mail
     return { type: "label", value, labelId: labels.find((label) => label.name === value)?.id || action.labelId || "" }
   }
   if (action.type === "move") return { type: "move", value: action.value || "Archive" }
+  if (action.type === "forward") return { type: "forward", value: (action.value || "").trim() }
   return { type: action.type }
 }
 
@@ -2767,6 +2729,8 @@ function conditionPlaceholder(field?: MailRuleCondition["field"]) {
   if (field === "size") return "例如 10mb"
   if (field === "date") return "选择日期"
   if (field === "attachment") return "输入附件名或扩展名"
+  if (field === "to" || field === "from" || field === "cc") return "输入邮箱或关键词"
+  if (field === "subject") return "输入主题关键词"
   return "输入值"
 }
 
@@ -2788,6 +2752,7 @@ function conditionItemSummary(item: MailRuleCondition): string {
 function actionSummary(action: MailRuleAction) {
   if (action.type === "label") return `${ruleActionLabels[action.type]}${action.value ? `：${action.value}` : ""}`
   if (action.type === "move") return `${ruleActionLabels[action.type]}：${folderLabel(action.value || "Archive")}`
+  if (action.type === "forward") return `${ruleActionLabels[action.type]}${action.value ? `：${action.value}` : ""}`
   return ruleActionLabels[action.type]
 }
 

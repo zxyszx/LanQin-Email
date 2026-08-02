@@ -494,6 +494,15 @@ func (a *App) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("rule action is required"))
 		return
 	}
+	actions, err := a.cleanRuleActions(r.Context(), user.ID, actions)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	if len(actions) == 0 {
+		badRequest(w, errors.New("rule action is required"))
+		return
+	}
 	conditionsJSON, err := json.Marshal(conditions)
 	if err != nil {
 		badRequest(w, err)
@@ -1070,10 +1079,10 @@ func normalizeRuleActions(items []MailRuleAction, legacyAction string) []MailRul
 	}
 	out := []MailRuleAction{}
 	for _, item := range items {
-		typ := strings.TrimSpace(item.Type)
+		typ := strings.ToLower(strings.TrimSpace(item.Type))
 		value := strings.TrimSpace(item.Value)
 		labelID := strings.TrimSpace(item.LabelID)
-		if typ != "archive" && typ != "trash" && typ != "star" && typ != "mark-read" && typ != "label" && typ != "move" {
+		if typ != "archive" && typ != "trash" && typ != "star" && typ != "mark-read" && typ != "label" && typ != "move" && typ != "forward" {
 			continue
 		}
 		if typ == "label" && value == "" && labelID == "" {
@@ -1082,9 +1091,30 @@ func normalizeRuleActions(items []MailRuleAction, legacyAction string) []MailRul
 		if typ == "move" && value == "" {
 			continue
 		}
+		if typ == "forward" && value == "" {
+			continue
+		}
 		out = append(out, MailRuleAction{Type: typ, Value: value, LabelID: labelID})
 	}
 	return out
+}
+
+func (a *App) cleanRuleActions(ctx context.Context, userID string, actions []MailRuleAction) ([]MailRuleAction, error) {
+	out := make([]MailRuleAction, 0, len(actions))
+	for _, action := range actions {
+		if action.Type == "forward" {
+			targets, err := a.cleanForwardingTargets(ctx, userID, splitRuleForwardTargets(action.Value))
+			if err != nil {
+				return nil, err
+			}
+			if len(targets) == 0 {
+				continue
+			}
+			action.Value = strings.Join(targets, ", ")
+		}
+		out = append(out, action)
+	}
+	return out, nil
 }
 
 func legacyConditionValue(items []MailRuleCondition, field string) string {
@@ -1324,6 +1354,10 @@ func (a *App) applyRuleActions(ctx context.Context, mailboxID, messageID string,
 			}
 		case "label":
 			if err := a.applyRuleLabel(ctx, mailboxID, messageID, action); err != nil {
+				return err
+			}
+		case "forward":
+			if err := a.processRuleForwarding(ctx, messageID, mailboxID, action); err != nil {
 				return err
 			}
 		}
