@@ -1690,7 +1690,7 @@ function MailboxManagement({
           <div className="space-y-4">
             <div className="truncate text-sm text-muted-foreground">{forwardingMailbox?.address}</div>
             <Field label="转发到">
-              <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} onChange={setForwardDraft} disabled={forwardingBusy} />
+              <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} onChange={setForwardDraft} disabled={forwardingBusy} placement="top" />
             </Field>
             {verifiedEmails.length === 0 && <p className="text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
           </div>
@@ -1986,7 +1986,7 @@ function forwardingTargetsLabel(targets: string[]) {
   return clean.length ? clean.join("、") : "不转发"
 }
 
-function ForwardingTargetPicker({ emails, selected, onChange, disabled }: { emails: string[]; selected: string[]; onChange: (targets: string[]) => void; disabled?: boolean }) {
+function ForwardingTargetPicker({ emails, selected, onChange, disabled, placement = "bottom" }: { emails: string[]; selected: string[]; onChange: (targets: string[]) => void; disabled?: boolean; placement?: "bottom" | "top" }) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
   const selectedSet = React.useMemo(() => new Set(selected), [selected])
@@ -2025,26 +2025,28 @@ function ForwardingTargetPicker({ emails, selected, onChange, disabled }: { emai
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </Button>
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-2 rounded-md border bg-popover p-2 shadow-sm">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 pl-8 pr-8 text-sm shadow-none"
-              placeholder="搜索已验证邮箱"
-              autoFocus
-            />
-            {query && (
-              <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-0.5 size-7 text-muted-foreground" onClick={() => setQuery("")}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </div>
-          <div className="mt-2 max-h-[220px] overflow-y-auto pr-1">
-            <Button type="button" variant="ghost" size="sm" className="mb-1 h-8 px-2 text-xs font-normal text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => onChange([])}>
-              清空选择
+        <div className={cn("absolute left-0 right-0 z-30 rounded-md border bg-popover p-2 shadow-sm", placement === "top" ? "bottom-full mb-2" : "mt-2")}>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <div className="relative min-w-0">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="h-8 pl-8 pr-8 text-sm shadow-none"
+                placeholder="搜索已验证邮箱"
+                autoFocus
+              />
+              {query && (
+                <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-0.5 size-7 text-muted-foreground" onClick={() => setQuery("")}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs font-normal text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => onChange([])}>
+              清空
             </Button>
+          </div>
+          <div className="mt-2 max-h-[132px] overflow-y-auto pr-1">
             <div className="space-y-1">
               {filteredEmails.map((email) => {
                 const checked = selectedSet.has(email)
@@ -2064,7 +2066,6 @@ function ForwardingTargetPicker({ emails, selected, onChange, disabled }: { emai
               {filteredEmails.length === 0 && <div className="px-2 py-8 text-center text-sm text-muted-foreground">没有匹配的已验证邮箱</div>}
             </div>
           </div>
-          <div className="mt-2 border-t pt-2 text-xs text-muted-foreground">{selectedEmails.length ? `已选择 ${selectedEmails.length} 个转发目标` : "未选择目标，保存后不转发。"}</div>
         </div>
       )}
     </div>
