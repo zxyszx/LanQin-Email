@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, ChevronDown, Clock3, Code2, Contact, Copy, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, BookOpen, ChevronDown, Clock3, Code2, Contact, Copy, ExternalLink, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -153,17 +153,17 @@ export function ProfilePage() {
   })
   const createApiToken = useMutation({
     mutationFn: (payload: { name: string; expiresAt?: string; scopes: string[] }) => api.createApiToken(payload),
-    onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["api-tokens"] }); toast({ title: "API Token 已创建" }); return res },
+    onSuccess: (res) => { qc.invalidateQueries({ queryKey: ["api-tokens"] }); toast({ title: "API 密钥已创建" }); return res },
     onError: (error) => toast({ title: "创建失败", description: error.message }),
   })
   const updateApiToken = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] } }) => api.updateApiToken(id, payload),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["api-tokens"] }); toast({ title: "API Token 已更新" }) },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["api-tokens"] }); toast({ title: "API 密钥已更新" }) },
     onError: (error) => toast({ title: "更新失败", description: error.message }),
   })
   const deleteApiToken = useMutation({
     mutationFn: api.deleteApiToken,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["api-tokens"] }); toast({ title: "API Token 已撤销" }) },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["api-tokens"] }); toast({ title: "API 密钥已撤销" }) },
     onError: (error) => toast({ title: "撤销失败", description: error.message }),
   })
   const createContact = useMutation({
@@ -319,7 +319,7 @@ export function ProfilePage() {
         <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
-        <div className="px-2 pb-2 pt-2 text-xs font-medium text-muted-foreground">管理</div>
+        <div className="px-2 pb-2 pt-2 text-xs font-semibold text-muted-foreground">管理</div>
         <div className="space-y-1">
           {visibleTabKeys.map((key) => (
             <button
@@ -327,11 +327,11 @@ export function ProfilePage() {
               type="button"
               className={cn(
                 "flex h-[36px] w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors",
-                tab === key ? "bg-muted font-medium text-foreground" : "text-foreground hover:bg-muted/70",
+                tab === key ? "bg-muted font-semibold text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
               )}
               onClick={() => setTab(key)}
             >
-              <span className="text-muted-foreground [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.8]">{tabs[key].icon}</span>
+              <span className={cn("text-muted-foreground [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-[1.8]", tab === key && "text-foreground/70")}>{tabs[key].icon}</span>
               <span className="truncate">{tabs[key].label}</span>
             </button>
           ))}
@@ -345,6 +345,8 @@ export function ProfilePage() {
       </div>
     </aside>
   )
+
+  const pageTitle = tab === "feedback" ? "反馈与工单" : tabs[tab].label
 
   return (
     <div className="h-svh overflow-hidden bg-background">
@@ -360,12 +362,12 @@ export function ProfilePage() {
                 <div className="h-svh">{sidebarContent}</div>
               </SheetContent>
             </Sheet>
-            <div className="min-w-0 flex-1 text-sm font-semibold">{tabs[tab].label}</div>
+            <div className="min-w-0 flex-1 text-sm font-semibold">{pageTitle}</div>
             <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="返回邮箱"><ArrowLeft className="h-4 w-4" /></Button>
           </header>
           <ScrollArea className="min-h-0 flex-1">
             <main className="w-full px-4 pb-10 pt-4">
-              <SettingsPageHeader title={tabs[tab].label} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
+              <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
               <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : "max-w-[1024px]")}>{renderTab()}</div>
             </main>
           </ScrollArea>
@@ -375,7 +377,7 @@ export function ProfilePage() {
           {sidebarContent}
           <section className="min-w-0 flex-1 overflow-y-auto">
             <main className="px-[24px] pb-12 pt-4">
-              <SettingsPageHeader title={tabs[tab].label} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
+              <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
               <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : "max-w-[1024px]")}>{renderTab()}</div>
             </main>
           </section>
@@ -574,13 +576,13 @@ function AccountSettingsSection(props: AccountSettingsSectionProps) {
 
 function SettingsCard({ title, subtitle, action, children, className, contentClassName }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode; className?: string; contentClassName?: string }) {
   return (
-    <section className={cn("rounded-lg border bg-card", className)}>
-      <div className="flex items-start justify-between gap-4 px-6 py-4">
+    <section className={cn("rounded-lg border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]", className)}>
+      <div className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold leading-7">{title}</h2>
-          {subtitle && <p className="mt-1 text-sm leading-5 text-muted-foreground">{subtitle}</p>}
+          <h2 className="text-[15px] font-semibold leading-6 text-foreground">{title}</h2>
+          {subtitle && <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{subtitle}</p>}
         </div>
-        {action}
+        {action && <div className="w-full shrink-0 sm:w-auto sm:justify-end [&>a]:w-full [&>button]:w-full sm:[&>a]:w-auto sm:[&>button]:w-auto">{action}</div>}
       </div>
       <div className={cn("px-6 pb-5", contentClassName)}>{children}</div>
     </section>
@@ -1019,17 +1021,111 @@ function CleanupQueueSection({ mailbox, stats }: { mailbox?: Mailbox; stats?: Ma
   )
 }
 
+type FeedbackTicket = { id: string; title: string; content: string; status: "pending" | "processing" | "replied" | "closed"; createdAt: string }
+const feedbackStatusTabs: { key: "all" | FeedbackTicket["status"]; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "pending", label: "待处理" },
+  { key: "processing", label: "处理中" },
+  { key: "replied", label: "已回复" },
+  { key: "closed", label: "已关闭" },
+]
+const feedbackStatusLabels: Record<FeedbackTicket["status"], string> = { pending: "待处理", processing: "处理中", replied: "已回复", closed: "已关闭" }
+
 function FeedbackSection() {
-  const [sent, setSent] = React.useState(false)
+  const { toast } = useToast()
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [status, setStatus] = React.useState<"all" | FeedbackTicket["status"]>("all")
+  const [tickets, setTickets] = React.useState<FeedbackTicket[]>(() => readFeedbackTickets())
+  const visibleTickets = status === "all" ? tickets : tickets.filter((item) => item.status === status)
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const title = String(form.get("title") || "").trim()
+    const content = String(form.get("content") || "").trim()
+    if (!title || !content) return
+    const next = [{ id: `${Date.now()}`, title, content, status: "pending" as const, createdAt: new Date().toISOString() }, ...tickets]
+    setTickets(next)
+    writeFeedbackTickets(next)
+    setDialogOpen(false)
+    event.currentTarget.reset()
+    toast({ title: "反馈已提交", description: "已加入本地工单列表，后续可接入服务端工单接口。" })
+  }
+
   return (
-    <SettingsCard title="反馈" subtitle="提交使用反馈、问题描述或改进建议。">
-      <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); setSent(true); event.currentTarget.reset() }}>
-        <Field label="标题"><Input name="title" required placeholder="简短描述问题" /></Field>
-        <Field label="内容"><Textarea name="content" required className="min-h-40" placeholder="请描述复现步骤、期望行为或建议" /></Field>
-        <Button>{sent ? "已记录" : "提交反馈"}</Button>
-      </form>
-    </SettingsCard>
+    <div className="space-y-4">
+      <div className="flex justify-stretch sm:justify-end">
+        <Button type="button" className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" />提交反馈</Button>
+      </div>
+      <SettingsCard title="反馈与工单" contentClassName="pt-1">
+        <div className="flex overflow-x-auto border-b">
+          {feedbackStatusTabs.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={cn("h-10 shrink-0 border-b-2 px-3 text-sm font-medium transition-colors", status === item.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}
+              onClick={() => setStatus(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="pt-5">
+          {visibleTickets.map((item) => (
+            <div key={item.id} className="mb-2 rounded-lg border bg-background p-4 transition-colors hover:bg-muted/40">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-foreground">{item.title}</div>
+                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{item.content}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="secondary">{feedbackStatusLabels[item.status]}</Badge>
+                  <span>{formatDateTime(item.createdAt)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+          {visibleTickets.length === 0 && (
+            <EmptyState
+              icon={<MessageSquare />}
+              text={status === "all" ? "暂无工单" : `暂无${feedbackStatusTabs.find((item) => item.key === status)?.label}工单`}
+              description="提交第一个反馈后会显示在这里"
+            />
+          )}
+        </div>
+      </SettingsCard>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="w-[min(92vw,34rem)] max-w-none">
+          <DialogHeader><DialogTitle>提交反馈</DialogTitle></DialogHeader>
+          <form className="space-y-4" onSubmit={submit}>
+            <Field label="标题"><Input name="title" required placeholder="简短描述问题" /></Field>
+            <Field label="内容"><Textarea name="content" required className="min-h-36" placeholder="请描述复现步骤、期望行为或建议" /></Field>
+            <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
+              <Button>提交反馈</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
+}
+
+function readFeedbackTickets(): FeedbackTicket[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem("lanqin:feedback-tickets") || "[]")
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is FeedbackTicket => {
+      return !!item && typeof item.id === "string" && typeof item.title === "string" && typeof item.content === "string" && ["pending", "processing", "replied", "closed"].includes(item.status) && typeof item.createdAt === "string"
+    })
+  } catch {
+    return []
+  }
+}
+
+function writeFeedbackTickets(items: FeedbackTicket[]) {
+  try { window.localStorage.setItem("lanqin:feedback-tickets", JSON.stringify(items.slice(0, 50))) } catch {}
 }
 
 function SwitchButton({ checked, onClick }: { checked: boolean; onClick: () => void }) {
@@ -2185,6 +2281,7 @@ const apiTokenScopeOptions = [
 ] as const
 
 function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelete, onCopy }: { items: APIToken[]; loading: boolean; pending: boolean; onCreate: (payload: { name: string; expiresAt?: string; scopes: string[] }) => Promise<{ token: string; item: APIToken }>; onUpdate: (id: string, payload: { name?: string; expiresAt?: string; disabled?: boolean; scopes?: string[] }) => void; onDelete: (id: string) => void; onCopy: (text: string) => void }) {
+  const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
   const [createdToken, setCreatedToken] = React.useState("")
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
   const [scopes, setScopes] = React.useState<string[]>(["messages:send", "messages:read"])
@@ -2198,94 +2295,109 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
     const form = new FormData(target)
     const expiresAt = dateInputToISOString(String(form.get("expiresAt") || ""))
     try {
-      const res = await onCreate({ name: String(form.get("name") || ""), expiresAt, scopes })
+      const res = await onCreate({ name: String(form.get("name") || "").trim(), expiresAt, scopes })
       setCreatedToken(res.token)
       target.reset()
       setScopes(["messages:send", "messages:read"])
+      setCreateDialogOpen(false)
     } catch {
       // Mutation-level error handling already shows the toast.
     }
   }
 
+  function openCreateDialog() {
+    setCreatedToken("")
+    setScopes(["messages:send", "messages:read"])
+    setCreateDialogOpen(true)
+  }
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <CardTitle>API Token</CardTitle>
-              <div className="mt-1 text-sm text-muted-foreground">用于服务端集成调用 `/api/open`，创建后请立即保存。</div>
+    <div className="space-y-4">
+      <div className="flex justify-stretch sm:justify-end">
+        <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
+          <a href="https://github.com/zxyszx/NewSzxcn-Email/blob/main/docs/API.md" target="_blank" rel="noreferrer">
+            <BookOpen className="h-4 w-4" />
+            API 文档
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+      </div>
+
+      <SettingsCard
+        title="API 密钥"
+        subtitle="用于服务端集成调用 `/api/open`，创建后请立即保存。"
+        action={<Button type="button" size="sm" className="w-full shrink-0 sm:w-auto" onClick={openCreateDialog}><Plus className="h-4 w-4" />创建密钥</Button>}
+        contentClassName="space-y-3"
+      >
+        {createdToken && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <div className="flex items-center gap-2 text-sm font-semibold"><KeyRound className="h-4 w-4" />只显示一次</div>
+            <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row">
+              <code className="min-w-0 flex-1 overflow-x-auto rounded border bg-background px-3 py-2 text-xs">{createdToken}</code>
+              <Button type="button" variant="outline" onClick={() => onCopy(createdToken)}><Copy className="h-4 w-4" />复制</Button>
             </div>
-            <Badge variant="secondary">{items.length} 个</Badge>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {createdToken && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
-              <div className="text-sm font-medium">只显示一次</div>
-              <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row">
-                <code className="min-w-0 flex-1 overflow-x-auto rounded border bg-background px-3 py-2 text-xs">{createdToken}</code>
-                <Button type="button" variant="outline" onClick={() => onCopy(createdToken)}><Copy className="h-4 w-4" />复制</Button>
+        )}
+
+        {items.map((item) => {
+          const expired = item.expiresAt ? new Date(item.expiresAt).getTime() <= Date.now() : false
+          return (
+            <div key={item.id} className="grid gap-3 rounded-lg border bg-background p-4 transition-colors hover:bg-muted/40 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="truncate text-sm font-semibold">{item.name}</div>
+                  <Badge variant={item.disabled || expired ? "secondary" : "default"}>{item.disabled ? "已禁用" : expired ? "已过期" : "可用"}</Badge>
+                </div>
+                <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground sm:grid-cols-3">
+                  <span>创建：{formatDateTime(item.createdAt)}</span>
+                  <span>过期：{item.expiresAt ? formatDateTime(item.expiresAt) : "未设置"}</span>
+                  <span>最后使用：{item.lastUsedAt ? formatDateTime(item.lastUsedAt) : "从未使用"}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {(item.scopes || ["*"]).map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 lg:justify-end">
+                <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => { setEditingToken(item); setEditingScopes(item.scopes?.includes("*") ? ["messages:send", "messages:read"] : item.scopes || []) }}>编辑权限</Button>
+                <Button type="button" variant="outline" size="sm" disabled={pending || expired} onClick={() => onUpdate(item.id, { disabled: !item.disabled })}>{item.disabled ? "启用" : "禁用"}</Button>
+                <Button type="button" variant="destructive" size="sm" disabled={pending} onClick={() => setPendingConfirm({ title: "撤销 API 密钥？", description: `密钥“${item.name}”撤销后无法恢复，正在使用它的集成会立即失效。`, confirmText: "撤销密钥", destructive: true, onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}>撤销</Button>
               </div>
             </div>
-          )}
+          )
+        })}
+        {!loading && items.length === 0 && <EmptyState icon={<KeyRound />} text="暂无 API 密钥" description="点击上方按钮创建" action={<Button type="button" variant="outline" size="sm" onClick={openCreateDialog}><Plus className="h-4 w-4" />创建密钥</Button>} />}
+        {loading && items.length === 0 && <EmptyState icon={<KeyRound />} text="正在加载 API 密钥" />}
+      </SettingsCard>
 
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader><DialogTitle>创建 API 密钥</DialogTitle></DialogHeader>
           <form className="space-y-4" onSubmit={submit}>
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
-              <Field label="名称"><Input name="name" required maxLength={80} placeholder="billing-system" /></Field>
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
+              <Field label="名称"><Input name="name" required maxLength={80} placeholder="billing-system" autoFocus /></Field>
               <Field label="到期日期"><Input name="expiresAt" type="date" defaultValue={defaultExpiresAt} min={dateInputValue(new Date())} required /></Field>
-              <Button disabled={pending || scopes.length === 0}>{pending ? "创建中..." : "创建 Token"}</Button>
             </div>
             <Field label="授权范围">
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {apiTokenScopeOptions.map(([value, label]) => (
-                  <label key={value} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                  <label key={value} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm transition-colors hover:bg-muted/50">
                     <Checkbox checked={scopes.includes(value)} onCheckedChange={(checked) => setScopes((current) => checked === true ? [...current, value] : current.filter((scope) => scope !== value))} />
                     <span>{label}</span>
                   </label>
                 ))}
               </div>
             </Field>
+            <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
+              <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>取消</Button>
+              <Button disabled={pending || scopes.length === 0}>{pending ? "创建中..." : "创建密钥"}</Button>
+            </DialogFooter>
           </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>已创建的 Token</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {items.map((item) => {
-            const expired = item.expiresAt ? new Date(item.expiresAt).getTime() <= Date.now() : false
-            return (
-              <div key={item.id} className="grid gap-3 rounded-lg border p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="truncate font-medium">{item.name}</div>
-                    <Badge variant={item.disabled || expired ? "secondary" : "default"}>{item.disabled ? "已禁用" : expired ? "已过期" : "可用"}</Badge>
-                  </div>
-                  <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
-                    <span>创建：{formatDateTime(item.createdAt)}</span>
-                    <span>过期：{item.expiresAt ? formatDateTime(item.expiresAt) : "未设置"}</span>
-                    <span>最后使用：{item.lastUsedAt ? formatDateTime(item.lastUsedAt) : "从未使用"}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {(item.scopes || ["*"]).map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => { setEditingToken(item); setEditingScopes(item.scopes?.includes("*") ? ["messages:send", "messages:read"] : item.scopes || []) }}>编辑权限</Button>
-                  <Button type="button" variant="outline" size="sm" disabled={pending || expired} onClick={() => onUpdate(item.id, { disabled: !item.disabled })}>{item.disabled ? "启用" : "禁用"}</Button>
-                  <Button type="button" variant="destructive" size="sm" disabled={pending} onClick={() => setPendingConfirm({ title: "撤销 API Token？", description: `Token “${item.name}” 撤销后无法恢复，正在使用它的集成会立即失效。`, confirmText: "撤销 Token", destructive: true, onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}>撤销</Button>
-                </div>
-              </div>
-            )
-          })}
-          {!loading && items.length === 0 && <EmptyState text="暂无 API Token" />}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editingToken} onOpenChange={(open) => { if (!open) setEditingToken(null) }}>
         <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader><DialogTitle>编辑 Token 权限</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>编辑密钥权限</DialogTitle></DialogHeader>
           <div className="grid gap-2 sm:grid-cols-2">
             {apiTokenScopeOptions.map(([value, label]) => (
               <label key={value} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
@@ -2499,16 +2611,13 @@ const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移
 function RulesSection({ items, mailboxes, labels, open, onOpenChange, onCreate, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onDelete: (id: string) => void; pending: boolean }) {
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => onOpenChange(true)}><Plus className="h-4 w-4" />新建规则</Button>
+      <div className="flex justify-stretch sm:justify-end">
+        <Button className="w-full sm:w-auto" onClick={() => onOpenChange(true)}><Plus className="h-4 w-4" />新建规则</Button>
       </div>
-      <Card>
-        <CardHeader><CardTitle>规则列表</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
+      <SettingsCard title="规则列表" contentClassName="space-y-2">
           {items.map((item) => <RuleListItem key={item.id} item={item} mailboxes={mailboxes} onDelete={onDelete} />)}
-          {items.length === 0 && <EmptyState text="暂无收件规则" />}
-        </CardContent>
-      </Card>
+          {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" />}
+      </SettingsCard>
       <RuleDialog open={open} onOpenChange={onOpenChange} mailboxes={mailboxes} labels={labels} pending={pending} onCreate={onCreate} />
     </div>
   )
@@ -2748,7 +2857,7 @@ function RuleListItem({ item, mailboxes, onDelete }: { item: MailRule; mailboxes
   const mailbox = item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+    <div className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40">
       <div className="min-w-0 space-y-1">
         <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
           <span className="truncate">{item.name}</span>
@@ -2818,53 +2927,166 @@ function actionSummary(action: MailRuleAction) {
 
 function BlockedSection({ items, mailboxes, mailboxId, spamCount, onMailboxChange, onCreate, onDelete, pending }: { items: any[]; mailboxes: Mailbox[]; mailboxId: string; spamCount: number; onMailboxChange: (value: string) => void; onCreate: (form: FormData) => void; onDelete: (id: string) => void; pending: boolean }) {
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    onCreate(new FormData(event.currentTarget))
+    event.currentTarget.reset()
+    setDialogOpen(false)
+  }
   return (
-    <div className="grid gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
-      <Card>
-        <CardHeader><CardTitle>新增拦截发件人</CardTitle></CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); onCreate(new FormData(e.currentTarget)); e.currentTarget.reset() }}>
-            <Field label="适用邮箱"><MailboxSelect value={mailboxId} mailboxes={mailboxes} onChange={onMailboxChange} /></Field>
-            <Field label="发件人邮箱"><Input name="email" type="email" required /></Field>
-            <Field label="原因"><Input name="reason" /></Field>
-            <Button className="w-full" disabled={pending}>{pending ? "保存中..." : "加入拦截"}</Button>
-          </form>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>被拦截邮件</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {items.map((item) => (
-            <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{item.email}</div>
-                <div className="truncate text-xs text-muted-foreground">{item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"}{item.reason ? ` · ${item.reason}` : ""}</div>
-              </div>
-              <Button variant="ghost" size="icon" className="size-8 text-destructive" onClick={() => setPendingConfirm({ title: "移除拦截规则？", description: `${item.email} 之后将不再被此规则拦截。`, confirmText: "移除规则", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-medium text-muted-foreground">共 {spamCount} 封垃圾邮件 · {items.length} 条发件人拦截规则</div>
+        <Button type="button" className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" />新增拦截</Button>
+      </div>
+      <SettingsCard title="被拦截邮件" subtitle="发件人命中拦截规则后会进入垃圾邮件，规则可随时移除。" contentClassName="space-y-2">
+        {items.map((item) => (
+          <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-foreground">{item.email}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"}{item.reason ? ` · ${item.reason}` : ""}</div>
             </div>
-          ))}
-          {items.length === 0 && <EmptyState text="暂无拦截发件人" />}
-        </CardContent>
-      </Card>
+            <Button variant="ghost" size="icon" className="size-8 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setPendingConfirm({ title: "移除拦截规则？", description: `${item.email} 之后将不再被此规则拦截。`, confirmText: "移除规则", onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}><Trash2 className="h-4 w-4" /></Button>
+          </div>
+        ))}
+        {items.length === 0 && <EmptyState icon={<ShieldCheck />} text="没有被拦截的邮件" description="当前没有发件人拦截规则，所有邮件都会按正常规则投递。" />}
+      </SettingsCard>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="w-[min(92vw,30rem)] max-w-none">
+          <DialogHeader><DialogTitle>新增拦截发件人</DialogTitle></DialogHeader>
+          <form className="space-y-4" onSubmit={submit}>
+            <Field label="适用邮箱"><MailboxSelect value={mailboxId} mailboxes={mailboxes} onChange={onMailboxChange} /></Field>
+            <Field label="发件人邮箱"><Input name="email" type="email" required placeholder="sender@example.com" /></Field>
+            <Field label="原因"><Input name="reason" placeholder="可选，例如：广告、骚扰邮件" /></Field>
+            <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
+              <Button disabled={pending}>{pending ? "保存中..." : "加入拦截"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog open={!!pendingConfirm} title={pendingConfirm?.title || ""} description={pendingConfirm?.description} confirmText={pendingConfirm?.confirmText || "移除"} destructive onOpenChange={(open) => { if (!open) setPendingConfirm(null) }} onConfirm={() => pendingConfirm?.onConfirm()} />
     </div>
   )
 }
 
 function StatsSection({ stats, mailbox, onRefresh }: { stats?: MailStats; mailbox?: Mailbox; onRefresh: () => void }) {
-  return <div className="space-y-6"><div className="flex items-center justify-between"><div className="text-sm text-muted-foreground">当前统计：{mailbox?.address || "未选择邮箱"}</div><Button variant="outline" onClick={onRefresh}><RefreshCcw className="h-4 w-4" />刷新</Button></div><StatsSummary stats={stats} /><Card><CardHeader><CardTitle>文件夹分布</CardTitle></CardHeader><CardContent className="space-y-2">{(stats?.byFolder || []).map((f) => <div key={f.folder} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-lg border p-3 text-sm"><div className="font-medium">{folderLabel(f.folder)}</div><Badge variant="secondary">{f.count} 封</Badge><span className="text-muted-foreground">未读 {f.unread}</span><span className="text-muted-foreground">{formatBytes(f.bytes)}</span></div>)}</CardContent></Card></div>
+  const [range, setRange] = React.useState("30")
+  const quotaLabel = stats?.quotaBytes ? `${formatBytes(stats.storageBytes || 0)} / ${formatBytes(stats.quotaBytes)}` : formatBytes(stats?.storageBytes || 0)
+  const quotaPct = Math.min(stats?.quotaUsedPct || 0, 100)
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-medium text-muted-foreground">当前统计：{mailbox?.address || "未选择邮箱"}</div>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <div className="grid grid-cols-4 rounded-md border bg-background p-0.5 sm:flex">
+            {[
+              ["7", "7天"],
+              ["30", "30天"],
+              ["90", "90天"],
+              ["365", "365天"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={cn("h-7 rounded px-2.5 text-xs font-medium transition-colors", range === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+                onClick={() => setRange(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={onRefresh}><RefreshCcw className="h-4 w-4" />刷新</Button>
+        </div>
+      </div>
+      <StatsSummary stats={stats} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+        <SettingsCard title="文件夹分布" contentClassName="space-y-3">
+          <FolderDistribution stats={stats} />
+        </SettingsCard>
+        <SettingsCard title="存储用量">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div className="text-lg font-semibold text-foreground">{quotaLabel}</div>
+            <div className="text-sm font-semibold text-foreground">{stats?.quotaBytes ? `${quotaPct.toFixed(0)}%` : "不限"}</div>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${stats?.quotaBytes ? quotaPct : 12}%` }} />
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">{quotaPct >= 90 ? "存储容量接近上限，请及时清理。" : "存储容量使用正常。"}</p>
+        </SettingsCard>
+      </div>
+    </div>
+  )
 }
 
 function StatsSummary({ stats }: { stats?: MailStats }) {
   const quotaLabel = stats?.quotaBytes ? `${formatBytes(stats.storageBytes || 0)} / ${formatBytes(stats.quotaBytes)}` : formatBytes(stats?.storageBytes || 0)
-  const cards = [{ label: "总邮件", value: stats?.totalMessages || 0 }, { label: "未读", value: stats?.unreadMessages || 0 }, { label: "星标", value: stats?.starredMessages || 0 }, { label: "附件", value: `${stats?.attachmentCount || 0} / ${formatBytes(stats?.attachmentBytes || 0)}` }, { label: stats?.quotaBytes ? `容量 ${Math.min(stats.quotaUsedPct || 0, 999).toFixed(1)}%` : "容量", value: quotaLabel }]
-  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{cards.map((c) => <Card key={c.label}><CardContent className="p-4"><div className="text-2xl font-semibold tracking-tight">{c.value}</div><div className="text-xs text-muted-foreground">{c.label}</div></CardContent></Card>)}</div>
+  const cards = [
+    { label: "总邮件", value: stats?.totalMessages || 0, icon: <Mail className="h-4 w-4" />, tone: "bg-zinc-100 text-zinc-700" },
+    { label: "未读", value: stats?.unreadMessages || 0, icon: <MailCheck className="h-4 w-4" />, tone: "bg-emerald-50 text-emerald-600" },
+    { label: "星标", value: stats?.starredMessages || 0, icon: <ShieldCheck className="h-4 w-4" />, tone: "bg-amber-50 text-amber-600" },
+    { label: "附件", value: `${stats?.attachmentCount || 0} / ${formatBytes(stats?.attachmentBytes || 0)}`, icon: <Image className="h-4 w-4" />, tone: "bg-violet-50 text-violet-600" },
+    { label: stats?.quotaBytes ? `容量 ${Math.min(stats.quotaUsedPct || 0, 999).toFixed(1)}%` : "容量", value: quotaLabel, icon: <BarChart3 className="h-4 w-4" />, tone: "bg-slate-100 text-slate-700" },
+  ]
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {cards.map((card) => (
+        <Card key={card.label} className="shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
+            <div className="min-w-0">
+              <div className="truncate text-xl font-semibold leading-6 text-foreground">{card.value}</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{card.label}</div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function FolderDistribution({ stats }: { stats?: MailStats }) {
+  const rows = stats?.byFolder || []
+  const maxCount = Math.max(...rows.map((row) => row.count), 1)
+  if (rows.length === 0) return <EmptyState text="暂无文件夹统计" />
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => {
+        const width = Math.max(4, Math.round((row.count / maxCount) * 100))
+        return (
+          <div key={row.folder} className="grid gap-2 text-sm sm:grid-cols-[7rem_minmax(0,1fr)_auto] sm:items-center">
+            <div className="font-medium text-foreground">{folderLabel(row.folder)}</div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary/85" style={{ width: `${width}%` }} />
+            </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+              <Badge variant="secondary">{row.count} 封</Badge>
+              <span>未读 {row.unread}</span>
+              <span>{formatBytes(row.bytes)}</span>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function CleanupButton({ icon, title, disabled, onClick }: { icon: React.ReactNode; title: string; disabled: boolean; onClick: () => void }) { return <Button variant="outline" className="h-auto justify-start p-4 text-left" disabled={disabled} onClick={onClick}><div className="mr-3 rounded-lg bg-muted p-2">{icon}</div><div className="font-medium">{title}</div></Button> }
 function MailboxSelect({ value, mailboxes, onChange }: { value: string; mailboxes: Mailbox[]; onChange: (value: string) => void }) { return <Select value={value} onValueChange={onChange}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部邮箱</SelectItem>{mailboxes.map((m) => <SelectItem key={m.id} value={m.id}>{m.address}</SelectItem>)}</SelectContent></Select> }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <div className="space-y-2"><Label>{label}</Label>{children}</div> }
-function EmptyState({ text }: { text: string }) { return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{text}</div> }
+function EmptyState({ text, description, icon, action, className }: { text: string; description?: string; icon?: React.ReactNode; action?: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("grid min-h-[132px] place-items-center rounded-lg border border-dashed bg-background/60 px-6 py-8 text-center", className)}>
+      <div className="flex max-w-sm flex-col items-center">
+        {icon && <div className="mb-3 text-muted-foreground/70 [&>svg]:h-9 [&>svg]:w-9 [&>svg]:stroke-[1.5]">{icon}</div>}
+        <div className="text-sm font-medium text-muted-foreground">{text}</div>
+        {description && <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div>}
+        {action && <div className="mt-4">{action}</div>}
+      </div>
+    </div>
+  )
+}
 function folderLabel(folder: string) { return ({ Inbox: "收件箱", Sent: "已发送", Drafts: "草稿箱", Archive: "归档", Spam: "垃圾邮件", Trash: "回收站" } as Record<string, string>)[folder] || folder }
 function clientServerHost(hostname?: string, address?: string) { const value = (hostname || "").trim(); if (value) return value; const domain = (address || "").split("@")[1]; return domain ? `mail.${domain}` : "mail.example.com" }
 function AccountHeader({ name, email, darkMode, onToggleTheme, onBack }: { name: string; email?: string; darkMode: boolean; onToggleTheme: () => void; onBack: () => void }) {
