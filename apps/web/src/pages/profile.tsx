@@ -1685,19 +1685,20 @@ function MailboxManagement({
       </Dialog>
 
       <Dialog open={!!forwardingMailbox} onOpenChange={(open) => { if (!open) setForwardingMailbox(null) }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>邮件转发</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="truncate text-sm text-muted-foreground">{forwardingMailbox?.address}</div>
-            <Field label="转发到">
-              <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} onChange={setForwardDraft} disabled={forwardingBusy} placement="top" />
-            </Field>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">转发到</Label>
+              <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-2">
+                <ForwardingTargetPicker emails={verifiedEmails} selected={forwardDraft} onChange={setForwardDraft} disabled={forwardingBusy} />
+                <Button type="button" variant="outline" className="h-[37px] px-0" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
+                <Button type="button" className="h-[37px] px-0" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
+              </div>
+            </div>
             {verifiedEmails.length === 0 && <p className="text-sm text-muted-foreground">暂未添加验证邮箱，请先点击「管理验证邮箱」添加。</p>}
           </div>
-          <DialogFooter className="gap-2 [&>button]:w-full sm:[&>button]:w-auto">
-            <Button type="button" variant="outline" disabled={forwardingBusy} onClick={() => setForwardingMailbox(null)}>取消</Button>
-            <Button type="button" disabled={forwardingBusy} onClick={saveMailboxForward}>{saveMailboxForwarding.isPending ? "保存中" : "保存"}</Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
