@@ -103,7 +103,7 @@
     border-right: 1px solid hsl(var(--border));
   }
 
-  @media (max-width: 979px) {
+  @media (max-width: 767px) {
     .mail-content-grid {
       grid-template-columns: minmax(0, 1fr);
     }

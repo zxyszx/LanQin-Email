@@ -89,7 +89,7 @@ const emptyAdvancedSearch: AdvancedMailSearch = { from: "", to: "", subject: "",
 const emptyAdvancedSearchDraft: AdvancedMailSearchDraft = { ...emptyAdvancedSearch }
 const mailboxSelectionStorageVersion = "2"
 const mailCompactBreakpoint = 768
-const mailDetailBreakpoint = 980
+const mailDetailBreakpoint = 768
 
 function useMaxViewportWidth(maxWidth: number) {
   const [matches, setMatches] = React.useState(false)
@@ -1442,7 +1442,7 @@ export function MailPage() {
     />
   ) : (
     <div className={cn("mail-content-grid min-h-0 flex-1 bg-background", selectedId && "is-reading")}>
-      <div className={cn("mail-list-pane min-w-0", selectedId && "max-[979px]:hidden")}>
+      <div className={cn("mail-list-pane min-w-0", selectedId && "max-[767px]:hidden")}>
         <div className="flex h-full min-h-0 flex-col bg-background">
           <div className="shrink-0 border-b px-3 pb-2.5 pt-2.5">
             <div className="relative">
@@ -1500,7 +1500,7 @@ export function MailPage() {
                     <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
                   </Button>
                   {canOrganizeMail && <Button size="icon" variant="ghost" disabled={!activeMailboxId || markAllRead.isPending || unreadCount === 0} onClick={() => markAllRead.mutate(allMessages)} className="h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground" title="全部已读"><Download className="h-4 w-4" /></Button>}
-                  <Button size="icon" variant="ghost" disabled className="hidden h-7 w-7 text-muted-foreground hover:bg-transparent min-[980px]:inline-flex" title="导入"><Upload className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" disabled className="hidden h-7 w-7 text-muted-foreground hover:bg-transparent min-[768px]:inline-flex" title="导入"><Upload className="h-4 w-4" /></Button>
                 </div>
               </div>
             </div>
@@ -1530,7 +1530,7 @@ export function MailPage() {
         </div>
       </div>
 
-      <section className={cn("mail-detail-pane min-w-0", !selectedId && "max-[979px]:hidden")}>
+      <section className={cn("mail-detail-pane min-w-0", !selectedId && "max-[767px]:hidden")}>
         <div className="h-full min-h-0 bg-background">
           {!selectedId && (
             <div className="grid h-full place-items-center text-muted-foreground">
