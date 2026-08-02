@@ -50,7 +50,7 @@ export function LoginPage() {
               <>
                 <div className="space-y-2">
                   <Label htmlFor="loginName" className="text-sm font-medium">登录名</Label>
-                  <Input id="loginName" name="loginName" type="text" autoComplete="username" placeholder="admin 或 admin@newszxcn.com" required className="h-11 text-base" />
+                  <Input id="loginName" name="loginName" type="text" autoComplete="username" required className="h-11 text-base" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-sm font-medium">密码</Label>
