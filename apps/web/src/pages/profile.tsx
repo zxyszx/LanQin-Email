@@ -603,7 +603,7 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
       <SettingsCard title="账号信息">
         <div className="space-y-5">
           <InfoLine label="用户名" value={accountName} />
-          <InfoLine label="NodeSeek ID" value={user.id.slice(0, 8)} />
+          <InfoLine label="NewSzxcn ID" value={user.id.slice(0, 8)} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
             <Label className="text-base font-normal text-muted-foreground">时区</Label>
             <select className="h-[29px] rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring sm:ml-auto sm:w-[236px]" defaultValue="Asia/Shanghai">
@@ -638,7 +638,7 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
 
       <SettingsCard title="版本更新" subtitle="查看每次版本更新后的功能变更与调整说明。">
         <div className="space-y-3">
-          {["NodeSeek Mail v3 风格设置页", "智能搜索与邮件列表", "自建邮箱管理能力"].map((title, index) => (
+          {["NewSzxcn 邮箱 v3 风格设置页", "智能搜索与邮件列表", "自建邮箱管理能力"].map((title, index) => (
             <div key={title} className="rounded-md border px-4 py-3">
               <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 <span>v{3 - index}.0.0</span>
