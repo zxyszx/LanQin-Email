@@ -1748,6 +1748,9 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 		if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
 			t.Fatalf("verify email code=%d", code)
 		}
+		if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
+			t.Fatalf("reopen verified email link code=%d", code)
+		}
 		if code := admin.do("GET", "/api/me/forwarding", nil, &settings); code != http.StatusOK {
 			t.Fatalf("reload forwarding settings code=%d", code)
 		}
@@ -1781,6 +1784,9 @@ func TestInboundForwardingSettingsAndDelivery(t *testing.T) {
 	token := extractForwardingVerificationToken(t, verificationBody)
 	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
 		t.Fatalf("verify account target code=%d", code)
+	}
+	if code := admin.do("GET", "/api/verify-email?token="+url.QueryEscape(token), nil, nil); code != http.StatusOK {
+		t.Fatalf("reopen account verification link code=%d", code)
 	}
 	if code := admin.do("POST", "/api/me/forwarding/account", map[string]string{"targetEmail": "account-forward@example.test"}, &settings); code != http.StatusOK || settings.AccountTargetEmail != "account-forward@example.test" {
 		t.Fatalf("save account forwarding code=%d settings=%+v", code, settings)

@@ -157,7 +157,7 @@ func (a *App) handleVerifyForwardingEmail(w http.ResponseWriter, r *http.Request
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	_, err = a.db.ExecContext(r.Context(), `UPDATE forwarding_verified_emails
-		SET verified=1,verified_at=?,verification_token_hash='',delivery_status='verified',delivery_error='',updated_at=?
+		SET verified=1,verified_at=?,delivery_status='verified',delivery_error='',updated_at=?
 		WHERE id=?`, now, now, id)
 	if err != nil {
 		a.renderForwardingVerificationPage(w, http.StatusInternalServerError, false, email, "验证失败，请稍后重试")
