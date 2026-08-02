@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Archive, ArrowLeft, BarChart3, Ban, BookOpen, ChevronDown, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Star, Sun, Trash2, Users, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, BookOpen, ChevronDown, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -369,7 +369,7 @@ export function ProfilePage() {
           <ScrollArea className="min-h-0 flex-1">
             <main className="w-full px-4 pb-10 pt-4">
               <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : "max-w-[1024px]")}>{renderTab()}</div>
+              <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : "max-w-[1024px]")}>{renderTab()}</div>
             </main>
           </ScrollArea>
         </div>
@@ -379,7 +379,7 @@ export function ProfilePage() {
           <section className="min-w-0 flex-1 overflow-y-auto">
             <main className="px-[24px] pb-12 pt-4">
               <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : "max-w-[1024px]")}>{renderTab()}</div>
+              <div className={cn("mx-auto w-full", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : "max-w-[1024px]")}>{renderTab()}</div>
             </main>
           </section>
         </div>
@@ -2988,7 +2988,7 @@ function StatsSection({ stats, mailbox, rangeDays, onRangeChange, onRefresh }: {
     { label: "平均邮件大小", value: formatBytes(stats?.averageMessageBytes || 0) },
   ]
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm leading-6 text-muted-foreground">查看邮件收发趋势、分布情况和常用联系人。</p>
@@ -3015,41 +3015,56 @@ function StatsSection({ stats, mailbox, rangeDays, onRangeChange, onRefresh }: {
           <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={onRefresh}><RefreshCcw className="h-4 w-4" />刷新</Button>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {primaryCards.map((card) => (
-          <div key={card.label} className="rounded-lg border bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
-              {card.detail && <Badge variant="secondary" className="rounded-md font-normal">{card.detail}</Badge>}
+          <div key={card.label} className="grid h-[66px] grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
+            <div className="min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate text-xs font-medium text-muted-foreground">{card.label}</div>
+                {card.detail && <Badge variant="secondary" className="rounded-md font-normal">{card.detail}</Badge>}
+              </div>
+              <div className="mt-0.5 truncate text-lg font-semibold leading-6 text-foreground">{card.value}</div>
             </div>
-            <div className="truncate text-[22px] font-semibold leading-7 text-foreground">{card.value}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{card.label}</div>
           </div>
         ))}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {secondaryStats.map((item) => (
-          <div key={item.label} className="rounded-lg border bg-background px-4 py-3">
-            <div className="text-lg font-semibold leading-6 text-foreground">{item.value}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
+          <div key={item.label} className="flex h-8 items-center justify-between gap-3 rounded-lg border bg-background px-3 text-sm">
+            <div className="truncate text-xs font-medium text-muted-foreground">{item.label}</div>
+            <div className="shrink-0 font-semibold text-foreground">{item.value}</div>
           </div>
         ))}
       </div>
-      <SettingsCard title="收发趋势" contentClassName="pt-1">
-        <StatsTrendChart points={stats?.trend || []} />
-      </SettingsCard>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
-        <SettingsCard title="邮件分布" contentClassName="pt-1">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_272px]">
+        <StatsPanel title="收发趋势">
+          <StatsTrendChart points={stats?.trend || []} />
+        </StatsPanel>
+        <StatsPanel title="邮件分布">
           <StatsDistribution items={stats?.distribution || []} />
-        </SettingsCard>
-        <SettingsCard title="存储用量">
-          <StatsStorage quotaLabel={quotaLabel} quotaPct={quotaPct} hasQuota={!!stats?.quotaBytes} />
-        </SettingsCard>
+        </StatsPanel>
       </div>
-      <SettingsCard title="常用联系人" contentClassName="pt-1">
-        <StatsContacts contacts={stats?.topContacts || []} />
-      </SettingsCard>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <StatsPanel title="存储用量">
+          <StatsStorage quotaLabel={quotaLabel} quotaPct={quotaPct} hasQuota={!!stats?.quotaBytes} />
+        </StatsPanel>
+        <StatsPanel title="常用联系人">
+          <StatsContacts contacts={stats?.topContacts || []} />
+        </StatsPanel>
+      </div>
     </div>
+  )
+}
+
+function StatsPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-lg border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="px-4 pb-1.5 pt-2.5">
+        <h2 className="text-[13px] font-semibold leading-5 text-foreground">{title}</h2>
+      </div>
+      <div className="px-4 pb-2.5">{children}</div>
+    </section>
   )
 }
 
@@ -3057,8 +3072,8 @@ function StatsTrendChart({ points }: { points: MailStats["trend"] }) {
   const data = points.length ? points : [{ date: "", incoming: 0, outgoing: 0 }]
   const maxValue = Math.max(...data.flatMap((item) => [item.incoming, item.outgoing]), 1)
   const width = 520
-  const height = 210
-  const padding = { top: 18, right: 14, bottom: 32, left: 34 }
+  const height = 148
+  const padding = { top: 12, right: 10, bottom: 22, left: 32 }
   const plotWidth = width - padding.left - padding.right
   const plotHeight = height - padding.top - padding.bottom
   const xFor = (index: number) => padding.left + (data.length === 1 ? plotWidth / 2 : (index / (data.length - 1)) * plotWidth)
@@ -3066,12 +3081,12 @@ function StatsTrendChart({ points }: { points: MailStats["trend"] }) {
   const pathFor = (key: "incoming" | "outgoing") => data.map((item, index) => `${index === 0 ? "M" : "L"} ${xFor(index).toFixed(1)} ${yFor(item[key]).toFixed(1)}`).join(" ")
   const ticks = trendTicks(data)
   return (
-    <div className="rounded-lg border bg-background p-3">
-      <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
+    <div className="h-[150px] rounded-md bg-background">
+      <div className="flex items-center justify-end gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-blue-500" />收件</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" />发件</span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[220px] w-full overflow-visible" role="img" aria-label="邮件收发趋势">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[134px] w-full overflow-visible" role="img" aria-label="邮件收发趋势">
         {[0, 0.25, 0.5, 0.75, 1].map((step) => {
           const y = padding.top + plotHeight * step
           return <line key={step} x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="stroke-border" strokeDasharray={step === 1 ? undefined : "3 5"} />
@@ -3087,7 +3102,7 @@ function StatsTrendChart({ points }: { points: MailStats["trend"] }) {
         <text x="0" y={padding.top + 4} className="fill-muted-foreground text-[11px]">{maxValue}</text>
         <text x="0" y={padding.top + plotHeight + 4} className="fill-muted-foreground text-[11px]">0</text>
         {ticks.map((tick) => (
-          <text key={`${tick.index}-${tick.label}`} x={xFor(tick.index)} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[11px]">{tick.label}</text>
+          <text key={`${tick.index}-${tick.label}`} x={xFor(tick.index)} y={height - 6} textAnchor="middle" className="fill-muted-foreground text-[11px]">{tick.label}</text>
         ))}
       </svg>
     </div>
@@ -3125,44 +3140,38 @@ function StatsDistribution({ items }: { items: MailStats["distribution"] }) {
   ]
   const maxCount = Math.max(...rows.map((row) => row.count), 1)
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className="space-y-2 py-1">
       {rows.map((row) => (
-        <div key={row.key} className="rounded-lg border bg-background p-3">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <div className="flex min-w-0 items-center gap-2 font-medium text-foreground">
-              <span className="text-muted-foreground">{distributionIcon(row.key)}</span>
-              <span className="truncate">{row.label}</span>
-            </div>
-            <span className="shrink-0 font-semibold">{row.count}</span>
+        <div key={row.key} className="grid grid-cols-[4.5rem_minmax(0,1fr)_2rem] items-center gap-2 text-xs">
+          <div className="truncate font-medium text-muted-foreground">{row.label}</div>
+          <div className="h-2.5 overflow-hidden rounded-full bg-muted">
+            <div className={cn("h-full rounded-full", distributionBarTone(row.key))} style={{ width: `${Math.max(row.count > 0 ? 6 : 0, Math.round((row.count / maxCount) * 100))}%` }} />
           </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary/80" style={{ width: `${Math.max(5, Math.round((row.count / maxCount) * 100))}%` }} />
-          </div>
+          <div className="text-right font-semibold text-foreground">{row.count}</div>
         </div>
       ))}
     </div>
   )
 }
 
-function distributionIcon(key: string) {
-  const cls = "h-4 w-4"
-  if (key === "archive") return <Archive className={cls} />
-  if (key === "spam") return <MailX className={cls} />
-  if (key === "trash") return <Trash2 className={cls} />
-  if (key === "attachments") return <Image className={cls} />
-  if (key === "starred") return <Star className={cls} />
-  return <Mail className={cls} />
+function distributionBarTone(key: string) {
+  if (key === "archive") return "bg-sky-500"
+  if (key === "spam") return "bg-amber-400"
+  if (key === "trash") return "bg-red-500"
+  if (key === "attachments") return "bg-violet-500"
+  if (key === "starred") return "bg-slate-600"
+  return "bg-slate-900"
 }
 
 function StatsStorage({ quotaLabel, quotaPct, hasQuota }: { quotaLabel: string; quotaPct: number; hasQuota: boolean }) {
   return (
-    <div>
-      <div className="mb-3 flex items-end justify-between gap-3">
-        <div className="text-lg font-semibold text-foreground">{quotaLabel}</div>
-        <div className="text-sm font-semibold text-foreground">{hasQuota ? `${quotaPct.toFixed(0)}%` : "不限"}</div>
+    <div className="h-[136px] pt-2">
+      <div className="mb-2 flex items-end justify-between gap-3">
+        <div className="text-sm font-semibold text-foreground">{quotaLabel}</div>
+        <div className="text-xs font-semibold text-foreground">{hasQuota ? `${quotaPct.toFixed(0)}%` : "不限"}</div>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${hasQuota ? quotaPct : 12}%` }} />
+        <div className="h-full rounded-full bg-slate-900 transition-all" style={{ width: `${hasQuota ? quotaPct : 12}%` }} />
       </div>
       <p className="mt-3 text-xs text-muted-foreground">{quotaPct >= 90 ? "存储容量接近上限，请及时清理。" : "存储容量使用正常。"}</p>
     </div>
@@ -3170,14 +3179,14 @@ function StatsStorage({ quotaLabel, quotaPct, hasQuota }: { quotaLabel: string; 
 }
 
 function StatsContacts({ contacts }: { contacts: MailStats["topContacts"] }) {
-  if (contacts.length === 0) return <EmptyState icon={<Users />} text="暂无常用联系人" description="有邮件往来后会显示联系人排行" />
+  if (contacts.length === 0) return <EmptyState icon={<Users />} text="暂无常用联系人" description="有邮件往来后会显示联系人排行" className="h-[136px] min-h-0 py-4" />
   return (
-    <div className="divide-y rounded-lg border bg-background">
-      {contacts.map((item, index) => (
-        <div key={item.email} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-sm">
-          <div className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">{index + 1}</div>
+    <div className="h-[136px] space-y-1 overflow-hidden pt-1">
+      {contacts.slice(0, 7).map((item, index) => (
+        <div key={item.email} className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem] items-center gap-2 text-xs leading-5">
+          <div className="text-center font-semibold text-muted-foreground">{index + 1}</div>
           <div className="min-w-0 truncate font-medium text-foreground">{item.email}</div>
-          <Badge variant="secondary" className="rounded-md font-normal">{item.count} 封</Badge>
+          <div className="text-right font-semibold text-muted-foreground">{item.count} 封</div>
         </div>
       ))}
     </div>
