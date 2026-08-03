@@ -10,15 +10,6 @@ NewSzxcn-Email 是一个可自建、可管理、开箱即用的开源邮箱系�
 - 管理后台、全部邮件、发送队列、系统设置
 - Postfix、Dovecot、Rspamd、SQLite、Docker 单容器部署
 
-## 截图
-
-
-  <img src="docs/screenshots/mail-preview.png" alt="邮箱首页" width="49%" />
-  <img src="docs/screenshots/compose-preview.png" alt="写邮件" width="49%" />
-  <img src="docs/screenshots/admin-preview.png" alt="后台管理" width="49%" />
-  <img src="docs/screenshots/client-preview.png" alt="邮箱管理" width="49%" />
-
-
 ## 技术栈
 
 - 后端：Go
