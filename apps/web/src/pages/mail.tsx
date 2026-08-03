@@ -11,7 +11,7 @@ import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
 import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style"
 import { useNavigate } from "react-router-dom"
-import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, X } from "lucide-react"
+import { AlignCenter, AlignLeft, AlignRight, Archive, ArrowLeft, Ban, Bold, Calendar, Check, ChevronDown, Clock3, Code2, Copy, Download, Ellipsis, Eraser, Eye, FileText, Folder, Forward, Highlighter, History, Image, Inbox, IndentDecrease, IndentIncrease, Italic, Link, List, ListOrdered, Mail, MailCheck, MailQuestion, Moon, PanelLeftOpen, Paperclip, PencilLine, Plus, Quote, Redo2, RefreshCcw, Reply, RotateCcw, Search, Send, Settings, ShieldCheck, Signature, SlidersHorizontal, Smile, Star, Strikethrough, Sun, Tag, Trash2, Type, Underline, Undo2, Upload, X } from "lucide-react"
 import { api, ExternalImapAccount, ExternalImapFolder, ListResponse, Mailbox, MailFolder, MailLabel, MailMessage, MailSearchParams, SendPayload, DraftPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, PermissionLimits } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate, formatDateTime, generateLabelColor } from "@/lib/utils"
 import { applyTheme, getInitialTheme } from "@/lib/theme"
@@ -60,7 +60,7 @@ const folderLabels: Record<string, string> = {
 
 type ComposeDraft = { key: string; id?: string; mailboxId?: string; to?: string; cc?: string; bcc?: string; subject?: string; text?: string; html?: string; files?: File[]; isDraft?: boolean }
 type MailFilter = "all" | "unread" | "starred" | "attachments" | "recent7"
-type MailView = "folder" | "starred" | "label" | "scheduled" | "sendQueue" | "external"
+type MailView = "folder" | "starred" | "label" | "scheduled" | "sendQueue" | "external" | "unknown"
 type MailListResponse = { items?: MailMessage[]; nextCursor?: string }
 type PendingConfirm = { title: string; description?: string; confirmText: string; onConfirm: () => void }
 type MailNotificationState = { latestId: string; latestReceivedAt: string }
@@ -75,6 +75,7 @@ type MailMenuItem =
   | { type: "starred"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
   | { type: "scheduled"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
   | { type: "sendQueue"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
+  | { type: "unknown"; key: string; label: string; icon: React.ReactNode; count: number; order: number }
   | { type: "folder"; key: string; folderId: string; folderName: string; label: string; icon: React.ReactNode; count: number; custom: boolean; order: number }
 
 const filterLabels: Record<MailFilter, string> = {
@@ -137,6 +138,8 @@ export function MailPage() {
   const compactMailLayout = isMobile || isNarrowMailViewport || displayMode === "compact"
   const [refreshing, setRefreshing] = React.useState(false)
   const [autoRefreshing, setAutoRefreshing] = React.useState(false)
+  const [exportingMail, setExportingMail] = React.useState(false)
+  const [importingMail, setImportingMail] = React.useState(false)
   const [lastAutoRefreshAt, setLastAutoRefreshAt] = React.useState<Date | null>(null)
   const [bulkPending, setBulkPending] = React.useState(false)
   const [pendingConfirm, setPendingConfirm] = React.useState<PendingConfirm | null>(null)
@@ -159,6 +162,7 @@ export function MailPage() {
   const themeMountedRef = React.useRef(false)
   const mailNotifyStateRef = React.useRef<Record<string, MailNotificationState>>({})
   const mailAudioContextRef = React.useRef<AudioContext | null>(null)
+  const mailImportInputRef = React.useRef<HTMLInputElement | null>(null)
   const user = me.data?.user
   const canAccessMail = hasPermission(user, "mail.access")
   const canReadMail = hasPermission(user, "mail.messages.read")
@@ -169,6 +173,7 @@ export function MailPage() {
   const canManageLabels = hasPermission(user, "mail.labels.manage")
   const canDownloadAttachments = hasPermission(user, "mail.attachments.download")
   const canManageSignatures = hasPermission(user, "mail.signatures.manage")
+  const canViewUnknownMail = user?.role === "admin"
   const publicSettings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings })
   const externalImapEnabled = publicSettings.data?.externalImapEnabled ?? false
 
@@ -234,7 +239,18 @@ export function MailPage() {
     },
     initialPageParam: "",
     getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
-    enabled: !!activeMailboxId && canReadMail && mailView !== "scheduled" && mailView !== "sendQueue" && (mailView !== "label" || !!selectedLabelId),
+    enabled: !!activeMailboxId && canReadMail && mailView !== "scheduled" && mailView !== "sendQueue" && mailView !== "unknown" && (mailView !== "label" || !!selectedLabelId),
+  })
+  const unknownMessages = useInfiniteQuery({
+    queryKey: ["admin", "unknown-messages", query],
+    queryFn: ({ pageParam }) => api.adminMessages({
+      mailboxId: "unregistered",
+      q: query.trim(),
+      cursor: typeof pageParam === "string" ? pageParam : "",
+    }),
+    initialPageParam: "",
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
+    enabled: canViewUnknownMail && mailView === "unknown",
   })
   const externalMessages = useInfiniteQuery({
     queryKey: ["external-messages", selectedExternalAccountId, externalFolder, query],
@@ -243,7 +259,11 @@ export function MailPage() {
     getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
     enabled: !!selectedExternalAccountId && canReadMail && mailView === "external" && externalImapEnabled,
   })
-  const detail = useQuery({ queryKey: ["message", selectedId, mailView, selectedExternalAccountId], queryFn: () => mailView === "external" ? api.externalMessage(selectedExternalAccountId, selectedId!) : api.message(selectedId!, { markRead: false }), enabled: !!selectedId && canReadMail && (mailView !== "external" || (!!selectedExternalAccountId && externalImapEnabled)) })
+  const detail = useQuery({
+    queryKey: ["message", selectedId, mailView, selectedExternalAccountId],
+    queryFn: () => mailView === "external" ? api.externalMessage(selectedExternalAccountId, selectedId!) : mailView === "unknown" ? api.adminMessage(selectedId!) : api.message(selectedId!, { markRead: false }),
+    enabled: !!selectedId && canReadMail && (mailView !== "external" || (!!selectedExternalAccountId && externalImapEnabled)) && (mailView !== "unknown" || canViewUnknownMail),
+  })
   function updateCachedMessage(id: string, patch: Partial<MailMessage>) {
     qc.setQueryData(["message", id], (current: MailMessage | undefined) => current ? { ...current, ...patch } : current)
     qc.setQueriesData({ queryKey: ["messages"] }, (current: InfiniteData<MailListResponse> | undefined) => {
@@ -567,6 +587,8 @@ export function MailPage() {
   React.useEffect(() => {
     const events = new EventSource("/api/events", { withCredentials: true })
     events.addEventListener("sync", () => {
+      qc.invalidateQueries({ queryKey: ["messages"] })
+      qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] })
       qc.invalidateQueries({ queryKey: ["folders"] })
       qc.invalidateQueries({ queryKey: ["mail-stats"] })
       qc.invalidateQueries({ queryKey: ["labels"] })
@@ -581,6 +603,9 @@ export function MailPage() {
       setAutoRefreshing(true)
       Promise.all([
         qc.invalidateQueries({ queryKey: ["messages"] }),
+        qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] }),
+        qc.invalidateQueries({ queryKey: ["external-messages"] }),
+        qc.invalidateQueries({ queryKey: ["mail-external-folders"] }),
         qc.invalidateQueries({ queryKey: ["folders"] }),
         qc.invalidateQueries({ queryKey: ["mail-stats"] }),
         qc.invalidateQueries({ queryKey: ["labels"] }),
@@ -596,7 +621,7 @@ export function MailPage() {
   }, [mailRefreshInterval, publicSettings.data?.mailAutoRefresh, qc])
 
   const selected = detail.data
-  const allMessages = (mailView === "external" ? externalMessages.data?.pages : messages.data?.pages)?.flatMap((page) => page.items || []) || []
+  const allMessages = (mailView === "external" ? externalMessages.data?.pages : mailView === "unknown" ? unknownMessages.data?.pages : messages.data?.pages)?.flatMap((page) => page.items || []) || []
   const visibleMessages = allMessages.filter((message) => {
     if (!messageMatchesAdvancedSearch(message, advancedSearch)) return false
     if (mailFilter === "unread") return !message.isRead
@@ -621,7 +646,7 @@ export function MailPage() {
   const sendQueueItems = sendQueue.data?.items || []
   const sendQueueCount = sendQueueItems.filter((item) => item.status === "failed" || item.status === "queued" || item.status === "sending").length
   const visibleSendQueueItems = sendQueueItems
-  const mailMenuItems = buildMailMenuItems(folders.data?.items || [], starredCount, canScheduleMail ? scheduledCount : 0, canScheduleMail, canViewSendQueue ? sendQueueCount : 0, canViewSendQueue)
+  const mailMenuItems = buildMailMenuItems(folders.data?.items || [], starredCount, canScheduleMail ? scheduledCount : 0, canScheduleMail, canViewSendQueue ? sendQueueCount : 0, canViewSendQueue, canViewUnknownMail)
   const primaryMailMenuItems = mailMenuItems.filter((item) => !isCustomMenuFolder(item))
   const customMailMenuItems = mailMenuItems.filter(isCustomMenuFolder)
   const canOrganizeCurrentMailbox = canOrganizeMail && !isAllMailboxSelected
@@ -630,7 +655,10 @@ export function MailPage() {
   const externalFolderItems = externalImapEnabled ? externalFolders.data?.items || [] : []
   const labelItems = labels.data?.items || []
   const selectedLabel = labelItems.find((item) => item.id === selectedLabelId)
-  const viewTitle = mailView === "external" ? `${selectedExternalAccount?.name || "外部邮箱"} · ${folderLabels[externalFolder] || externalFolder}` : mailView === "sendQueue" ? "发送队列" : mailView === "scheduled" ? "待发送" : mailView === "starred" ? "星标邮件" : mailView === "label" ? selectedLabel?.name || "标签" : folderLabels[folder] || folder
+  const viewTitle = mailView === "external" ? `${selectedExternalAccount?.name || "外部邮箱"} · ${folderLabels[externalFolder] || externalFolder}` : mailView === "unknown" ? "未知收件" : mailView === "sendQueue" ? "发送队列" : mailView === "scheduled" ? "待发送" : mailView === "starred" ? "星标邮件" : mailView === "label" ? selectedLabel?.name || "标签" : folderLabels[folder] || folder
+  const isTransferView = mailView === "folder" || mailView === "starred" || mailView === "label" || mailView === "unknown"
+  const canExportCurrentView = canReadMail && isTransferView
+  const canImportCurrentView = canOrganizeMail && isTransferView && mailView !== "unknown" && !!selectedMailbox
   const emptyMessage = getEmptyMessage(mailView, mailView === "external" ? externalFolder : folder, allMessages.length)
   const visibleMessageIds = visibleMessages.map((message) => message.id)
   const selectedCountOnPage = compactSelectedIds.filter((id) => visibleMessageIds.includes(id)).length
@@ -638,8 +666,11 @@ export function MailPage() {
   const bulkReadAction: BulkAction = selectedMessagesOnPage.some((message) => !message.isRead) ? "read" : "unread"
   const compactAllSelected = visibleMessageIds.length > 0 && selectedCountOnPage === visibleMessageIds.length
   const compactSomeSelected = selectedCountOnPage > 0 && !compactAllSelected
-  const hasMoreMessages = mailView === "external" ? !!externalMessages.hasNextPage : !!messages.hasNextPage
-  const canLoadMore = mailView === "external" ? !!externalMessages.hasNextPage && !externalMessages.isFetchingNextPage : !!messages.hasNextPage && !messages.isFetchingNextPage
+  const mailMessagesLoading = mailView === "external" ? externalMessages.isLoading : mailView === "unknown" ? unknownMessages.isLoading : messages.isLoading
+  const mailMessagesLoadingMore = mailView === "external" ? externalMessages.isFetchingNextPage : mailView === "unknown" ? unknownMessages.isFetchingNextPage : messages.isFetchingNextPage
+  const hasMoreMessages = mailView === "external" ? !!externalMessages.hasNextPage : mailView === "unknown" ? !!unknownMessages.hasNextPage : !!messages.hasNextPage
+  const canLoadMore = hasMoreMessages && !mailMessagesLoadingMore
+  const loadMoreMessages = () => mailView === "external" ? externalMessages.fetchNextPage() : mailView === "unknown" ? unknownMessages.fetchNextPage() : messages.fetchNextPage()
   function toggleCompactSelectAll(checked: boolean) {
     setCompactSelectedIds(checked ? visibleMessageIds : [])
   }
@@ -649,6 +680,7 @@ export function MailPage() {
   async function refreshMailData() {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["messages"] }),
+      qc.invalidateQueries({ queryKey: ["admin", "unknown-messages"] }),
       qc.invalidateQueries({ queryKey: ["external-messages"] }),
       qc.invalidateQueries({ queryKey: ["mail-external-folders"] }),
       qc.invalidateQueries({ queryKey: ["mail-external-accounts"] }),
@@ -806,8 +838,17 @@ export function MailPage() {
     setMailFilter("all")
     setMobileSidebarOpen(false)
   }
+  function openUnknownMail() {
+    if (!canViewUnknownMail) return
+    setSelectedExternalAccountId("")
+    setMailView("unknown")
+    setSelectedLabelId("")
+    setSelectedId(null)
+    setMailFilter("all")
+    setMobileSidebarOpen(false)
+  }
   function openMessageContextMenu(event: React.MouseEvent, message: MailMessage) {
-    if (mailView === "external") return
+    if (mailView === "external" || mailView === "unknown") return
     event.preventDefault()
     event.stopPropagation()
     if (message.folder !== "Drafts") setSelectedId(message.id)
@@ -828,6 +869,7 @@ export function MailPage() {
     if (item.type === "starred") openStarred()
     else if (item.type === "scheduled") openScheduled()
     else if (item.type === "sendQueue") openSendQueue()
+    else if (item.type === "unknown") openUnknownMail()
     else openFolder(item.folderName)
   }
   function openExternalFolder(account: ExternalImapAccount, folderName = "INBOX") {
@@ -1011,18 +1053,74 @@ export function MailPage() {
       return
     }
     setSelectedId(messageId)
-    if (message && !message.isRead && canOrganizeMail) {
+    if (message && !message.isRead && canOrganizeMail && mailView !== "unknown") {
       if (mailView === "external" && selectedExternalAccountId) markExternalRead.mutate({ id: selectedExternalAccountId, remoteId: message.id, read: true })
       else markRead.mutate({ id: message.id, read: true })
     }
   }
   async function refreshMail() {
+    if (refreshing || autoRefreshing) return
     setRefreshing(true)
     try {
       await refreshMailData()
-      setLastAutoRefreshAt(new Date())
+      const refreshedAt = new Date()
+      setLastAutoRefreshAt(refreshedAt)
+      toast({ title: "邮件已刷新", description: `更新于 ${refreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` })
+    } catch (error) {
+      toast({ title: "刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
     } finally {
       setRefreshing(false)
+    }
+  }
+  async function exportCurrentMail() {
+    if (!canExportCurrentView || exportingMail) return
+    setExportingMail(true)
+    try {
+      const exportView = mailView === "unknown" ? "unknown" : mailView === "starred" ? "starred" : mailView === "label" ? "label" : "folder"
+      const blob = await api.exportMail({
+        view: exportView,
+        mailboxId: mailView === "unknown" ? undefined : activeMailboxId,
+        folder: exportView === "folder" ? folder : undefined,
+        labelId: exportView === "label" ? selectedLabelId : undefined,
+      })
+      const href = URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      anchor.href = href
+      anchor.download = `${viewTitle.replace(/[\\/:*?"<>|]+/g, "-") || "邮件"}-${new Date().toISOString().slice(0, 10)}.zip`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(href), 1000)
+      toast({ title: "邮件已导出", description: `${viewTitle} 已打包为 ZIP` })
+    } catch (error) {
+      toast({ title: "导出失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    } finally {
+      setExportingMail(false)
+    }
+  }
+  function chooseMailImport() {
+    if (!canImportCurrentView || importingMail) {
+      if (isAllMailboxSelected) toast({ title: "请先选择一个邮箱", description: "导入邮件需要明确目标邮箱。" })
+      return
+    }
+    mailImportInputRef.current?.click()
+  }
+  async function importSelectedMailFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || [])
+    event.target.value = ""
+    if (files.length === 0 || !selectedMailbox) return
+    setImportingMail(true)
+    try {
+      const result = await api.importMail(files, { mailboxId: selectedMailbox.id, folder: mailView === "folder" ? folder : "Inbox" })
+      await refreshMailData()
+      toast({
+        title: `已导入 ${result.imported} 封邮件`,
+        description: result.skipped > 0 ? `${result.skipped} 封未能导入${result.errors[0] ? `：${result.errors[0]}` : ""}` : `已保存到 ${mailView === "folder" ? viewTitle : "收件箱"}`,
+      })
+    } catch (error) {
+      toast({ title: "导入失败", description: error instanceof Error ? error.message : "请检查 EML/MBOX 文件" })
+    } finally {
+      setImportingMail(false)
     }
   }
   async function copyCurrentMailbox() {
@@ -1139,7 +1237,7 @@ export function MailPage() {
                   onContextMenu={(event) => openSidebarContextMenu(event, item)}
                 >
                   <SidebarMenuButton
-                    isActive={item.type === "starred" ? mailView === "starred" : item.type === "scheduled" ? mailView === "scheduled" : item.type === "sendQueue" ? mailView === "sendQueue" : mailView === "folder" && folder === item.folderName}
+                    isActive={item.type === "starred" ? mailView === "starred" : item.type === "scheduled" ? mailView === "scheduled" : item.type === "sendQueue" ? mailView === "sendQueue" : item.type === "unknown" ? mailView === "unknown" : mailView === "folder" && folder === item.folderName}
                     className={cn(
                       "h-8 rounded-md px-2 text-[13px] font-normal",
                       sidebarCollapsed && "justify-center px-0",
@@ -1349,11 +1447,27 @@ export function MailPage() {
     </Sidebar>
   )
 
+  const mailTransferTools = isTransferView ? (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button type="button" size="icon" variant="ghost" onClick={() => void exportCurrentMail()} disabled={!canExportCurrentView || exportingMail} className="h-8 w-8 text-muted-foreground hover:text-foreground" title="导出当前邮箱邮件为 ZIP" aria-label="导出当前邮箱邮件为 ZIP">
+        <Download className={cn("h-4 w-4", exportingMail && "animate-pulse")} />
+      </Button>
+      {mailView !== "unknown" && (
+        <Button type="button" size="icon" variant="ghost" onClick={chooseMailImport} disabled={importingMail} className="h-8 w-8 text-muted-foreground hover:text-foreground disabled:pointer-events-auto" title={isAllMailboxSelected ? "请先选择一个邮箱后导入" : "导入邮件（EML/MBOX）"} aria-label="导入邮件（EML/MBOX）">
+          <Upload className={cn("h-4 w-4", importingMail && "animate-pulse")} />
+        </Button>
+      )}
+      <Button type="button" size="icon" variant="ghost" onClick={() => void refreshMail()} disabled={refreshing || autoRefreshing} className={cn("h-8 w-8 text-muted-foreground hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新当前视图"} aria-label="刷新当前视图">
+        <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
+      </Button>
+    </div>
+  ) : null
+
   const contentView = !canAccessMail ? (
     <PermissionEmptyState title="无邮箱前台权限" description="当前账号未开启邮箱前台访问权限。" onOpenSettings={openSettings} />
   ) : !canReadMail ? (
     <PermissionEmptyState title="无邮件查看权限" description="当前账号可以访问邮箱前台，但未开启邮件查看权限。" onOpenSettings={openSettings} />
-  ) : !mailboxList.isLoading && !hasMailboxes ? (
+  ) : !mailboxList.isLoading && !hasMailboxes && mailView !== "unknown" ? (
     <NoMailboxState onOpenSettings={openSettings} />
   ) : mailView === "scheduled" && canScheduleMail ? (
     <ScheduledSendView
@@ -1401,10 +1515,10 @@ export function MailPage() {
       selectedIds={compactSelectedIds}
       allSelected={compactAllSelected}
       someSelected={compactSomeSelected}
-      loading={mailView === "external" ? externalMessages.isLoading : messages.isLoading}
+      loading={mailMessagesLoading}
       hasMore={hasMoreMessages}
-      loadingMore={mailView === "external" ? externalMessages.isFetchingNextPage : messages.isFetchingNextPage}
-      onLoadMore={() => mailView === "external" ? externalMessages.fetchNextPage() : messages.fetchNextPage()}
+      loadingMore={mailMessagesLoadingMore}
+      onLoadMore={loadMoreMessages}
       emptyMessage={emptyMessage}
       selectedId={selectedId}
       selected={selected}
@@ -1429,10 +1543,11 @@ export function MailPage() {
         onBulkAction={runBulkAction}
         onContextMenu={openMessageContextMenu}
         canSend={canSendMail}
-      canOrganize={canOrganizeMail && mailView !== "external"}
-      canManageLabels={canManageLabels && mailView !== "external"}
+      canOrganize={canOrganizeMail && mailView !== "external" && mailView !== "unknown"}
+      canManageLabels={canManageLabels && mailView !== "external" && mailView !== "unknown"}
       canDownloadAttachments={canDownloadAttachments}
       language={language}
+      tools={!isMobile ? mailTransferTools : undefined}
     />
   ) : (
     <div className={cn("mail-content-grid min-h-0 flex-1 bg-background", selectedId && "is-reading")}>
@@ -1488,12 +1603,8 @@ export function MailPage() {
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
               <div className="flex min-w-0 items-center gap-2">
-                <h1 className="min-w-0 truncate text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
-                <div className="flex items-center gap-1.5">
-                  <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("h-7 w-7 text-muted-foreground hover:bg-transparent hover:text-foreground", (refreshing || autoRefreshing) && "text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
-                    <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
-                  </Button>
-                </div>
+                <h1 key={viewTitle} className="min-w-0 truncate text-xl font-bold leading-none text-foreground">{mailView === "label" && selectedLabel ? selectedLabel.name : viewTitle}</h1>
+                {mailTransferTools}
               </div>
             </div>
             <div className="flex min-w-0 shrink-0 items-center gap-1.5">
@@ -1501,20 +1612,20 @@ export function MailPage() {
               <Button type="button" variant={mailFilter === "unread" ? "secondary" : "outline"} size="sm" className="h-8 rounded-md px-3 text-[13px] font-normal shadow-none" onClick={() => setMailFilter("unread")}>未读</Button>
             </div>
           </div>
-          {selectedCountOnPage > 0 && canOrganizeMail && (
+          {selectedCountOnPage > 0 && canOrganizeMail && mailView !== "unknown" && (
             <div className="flex min-h-10 shrink-0 items-center gap-3 border-b px-3 py-1.5">
               <span className="shrink-0 text-[13px] text-muted-foreground">已选 {selectedCountOnPage} 封</span>
               <BulkActionToolbar pending={bulkPending} currentFolder={folder} folders={folders.data?.items || []} readAction={bulkReadAction} onAction={runBulkAction} onMoveToFolder={runBulkMoveToFolder} />
             </div>
           )}
           <ScrollArea className="min-h-0 flex-1">
-            {(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && <MessageSkeleton />}
-            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail} />)}
-            {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
-            {!(mailView === "external" ? externalMessages.isLoading : messages.isLoading) && hasMoreMessages && (
+            {mailMessagesLoading && <MessageSkeleton />}
+            {visibleMessages.map((m) => <MessageRow key={m.id} message={m} active={selectedId === m.id} checked={compactSelectedIds.includes(m.id)} scheduled={scheduledDraftIds.has(m.id)} onCheckedChange={(checked) => toggleCompactSelect(m.id, checked)} onClick={() => openMessage(m.id)} onContextMenu={(event) => openMessageContextMenu(event, m)} onStar={() => star.mutate({ id: m.id, starred: !m.isStarred })} onArchive={() => move.mutate({ id: m.id, folder: m.folder === "Archive" ? "Inbox" : "Archive" })} onTrash={() => move.mutate({ id: m.id, folder: "Trash" })} onToggleRead={() => markRead.mutate({ id: m.id, read: !m.isRead })} canOrganize={canOrganizeMail && mailView !== "unknown"} />)}
+            {!mailMessagesLoading && visibleMessages.length === 0 && <div className="grid min-h-[170px] place-items-center px-8 py-12 text-center text-base text-muted-foreground">{emptyMessage}</div>}
+            {!mailMessagesLoading && hasMoreMessages && (
               <div className="border-b p-4 text-center">
-                <Button variant="outline" size="sm" disabled={!canLoadMore} onClick={() => mailView === "external" ? externalMessages.fetchNextPage() : messages.fetchNextPage()}>
-                  {(mailView === "external" ? externalMessages.isFetchingNextPage : messages.isFetchingNextPage) ? "加载中..." : "加载更多"}
+                <Button variant="outline" size="sm" disabled={!canLoadMore} onClick={loadMoreMessages}>
+                  {mailMessagesLoadingMore ? "加载中..." : "加载更多"}
                 </Button>
               </div>
             )}
@@ -1546,18 +1657,18 @@ export function MailPage() {
                 <div className="flex flex-wrap justify-end gap-2">
                   {canSendMail && <Button variant="outline" size="sm" onClick={() => openReply(selected)}><Reply className="h-4 w-4" />回复</Button>}
                   {canSendMail && <Button variant="outline" size="sm" onClick={() => openForward(selected)}><Forward className="h-4 w-4" />转发</Button>}
-                  {mailView !== "external" && selected.sendQueueId && <Button variant="outline" size="sm" onClick={() => openMessageSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</Button>}
-                  {mailView !== "external" && canOrganizeMail && (selected.folder === "Archive" ? (
+                  {mailView !== "external" && mailView !== "unknown" && selected.sendQueueId && <Button variant="outline" size="sm" onClick={() => openMessageSendTimeline(selected)}><History className="h-4 w-4" />投递时间线</Button>}
+                  {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && (selected.folder === "Archive" ? (
                     <Button variant="outline" size="sm" onClick={() => move.mutate({ id: selected.id, folder: "Inbox" })}>取消归档</Button>
                   ) : (
                     <Button variant="outline" size="sm" onClick={() => move.mutate({ id: selected.id, folder: "Archive" })}>归档</Button>
                   ))}
-                  {mailView !== "external" && canOrganizeMail && <Button variant="destructive" size="sm" onClick={() => confirmDeleteMessage(selected)}>删除</Button>}
+                  {mailView !== "external" && mailView !== "unknown" && canOrganizeMail && <Button variant="destructive" size="sm" onClick={() => confirmDeleteMessage(selected)}>删除</Button>}
                 </div>
               </div>
               <MessageMetaPanel
                 message={selected}
-                {...(canManageLabels ? { availableLabels: labelItems, onAddLabel: (label: MailLabel) => addLabel.mutate({ id: selected.id, label }), onRemoveLabel: (labelId: string) => removeLabel.mutate({ id: selected.id, labelId }), labelPending: addLabel.isPending || removeLabel.isPending } : {})}
+                {...(canManageLabels && mailView !== "unknown" ? { availableLabels: labelItems, onAddLabel: (label: MailLabel) => addLabel.mutate({ id: selected.id, label }), onRemoveLabel: (labelId: string) => removeLabel.mutate({ id: selected.id, labelId }), labelPending: addLabel.isPending || removeLabel.isPending } : {})}
               />
             </div>
             <ScrollArea className="min-h-0 flex-1">
@@ -1588,10 +1699,8 @@ export function MailPage() {
                     <div className="h-svh">{sidebarContent}</div>
                   </SheetContent>
                 </Sheet>
-                <Button size="icon" variant="ghost" onClick={refreshMail} disabled={refreshing || autoRefreshing} className={cn("transition-all", (refreshing || autoRefreshing) && "bg-primary/5 text-primary")} title={autoRefreshing ? "自动刷新中" : "刷新邮件"}>
-                  <RefreshCcw className={cn("h-4 w-4", (refreshing || autoRefreshing) && "animate-spin")} />
-                </Button>
                 <div className="min-w-0 flex-1 text-sm font-semibold">{mailView === "label" && selectedLabel ? <Badge variant="outline" className="gap-1.5 rounded-md font-normal"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: generateLabelColor(selectedLabel.name).backgroundColor }} />{selectedLabel.name}</Badge> : viewTitle}</div>
+                {mailTransferTools}
                   {canSendMail && <Button type="button" size="icon" onClick={() => openCompose()} disabled={!selectedComposeMailbox} aria-label="写邮件"><PencilLine className="h-4 w-4" /></Button>}
                 <div className="relative basis-full">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1603,9 +1712,9 @@ export function MailPage() {
           </div>
         ) : (
           <div className="mail-shell-grid h-full min-h-0 w-full min-w-0 overflow-hidden">
-            <aside className="min-w-0">
+            <div className="min-w-0">
               {sidebarContent}
-            </aside>
+            </div>
             <section className="flex h-full min-h-0 min-w-0 flex-col">
               {contentView}
             </section>
@@ -1614,6 +1723,7 @@ export function MailPage() {
       </SidebarProvider>
 
       <ComposeDialog mailbox={selectedComposeMailbox} open={composeOpen} draft={composeDraft} limits={user?.limits} canSend={canSendMail} canManageDrafts={canManageDrafts} canSchedule={canScheduleMail} canManageSignatures={canManageSignatures} onOpenChange={(open) => { setComposeOpen(open); if (!open) setComposeDraft(undefined) }} onSent={() => { setComposeOpen(false); setComposeDraft(undefined); qc.invalidateQueries({ queryKey: ["messages"] }); qc.invalidateQueries({ queryKey: ["folders"] }); qc.invalidateQueries({ queryKey: ["mail-stats"] }); qc.invalidateQueries({ queryKey: ["labels"] }); qc.invalidateQueries({ queryKey: ["scheduled-sends"] }); qc.invalidateQueries({ queryKey: ["send-queue"] }) }} />
+      <Input ref={mailImportInputRef} type="file" accept=".eml,.mbox,message/rfc822,application/mbox" multiple className="hidden" onChange={importSelectedMailFiles} />
       <SendQueueAuditDialog
         open={!!sendQueueAuditId}
         loading={sendQueueAudit.isLoading}
@@ -1685,7 +1795,7 @@ export function MailPage() {
   )
 }
 
-function buildMailMenuItems(folders: MailFolder[], starredCount: number, scheduledCount: number, includeScheduled: boolean, sendQueueCount: number, includeSendQueue: boolean): MailMenuItem[] {
+function buildMailMenuItems(folders: MailFolder[], starredCount: number, scheduledCount: number, includeScheduled: boolean, sendQueueCount: number, includeSendQueue: boolean, includeUnknown: boolean): MailMenuItem[] {
   const byName = new Map(folders.map((item) => [item.name, item]))
   const normalizedFolders = ["Inbox", "Drafts", "Sent", "Archive", "Spam", "Trash"].map((name) => byName.get(name) || { id: `virtual-${name}`, name, role: name.toLowerCase(), sortOrder: 0, unreadCount: 0, totalCount: 0, uidValidity: 0, uidNext: 1, highestModseq: 1 })
   for (const item of folders) {
@@ -1702,11 +1812,13 @@ function buildMailMenuItems(folders: MailFolder[], starredCount: number, schedul
     custom: isCustomMailFolder(item),
     order: isCustomMailFolder(item) ? item.sortOrder || 100000 : menuAnchorOrder(item.name),
   }))
-  const starredItem: MailMenuItem = { type: "starred", key: "starred", label: "星标邮件", icon: <Star className="h-4 w-4" />, count: starredCount, order: 2000 }
-  const scheduledItem: MailMenuItem = { type: "scheduled", key: "scheduled", label: "稍后提醒", icon: <Clock3 className="h-4 w-4" />, count: scheduledCount, order: 6000 }
-  const sendQueueItem: MailMenuItem = { type: "sendQueue", key: "send-queue", label: "发送队列", icon: <History className="h-4 w-4" />, count: sendQueueCount, order: 9000 }
+  const starredItem: MailMenuItem = { type: "starred", key: "starred", label: "星标邮件", icon: <Star className="h-4 w-4" />, count: starredCount, order: 6000 }
+  const scheduledItem: MailMenuItem = { type: "scheduled", key: "scheduled", label: "稍后提醒", icon: <Clock3 className="h-4 w-4" />, count: scheduledCount, order: 7000 }
+  const unknownItem: MailMenuItem = { type: "unknown", key: "unknown", label: "未知收件", icon: <MailQuestion className="h-4 w-4" />, count: 0, order: 8000 }
+  const sendQueueItem: MailMenuItem = { type: "sendQueue", key: "send-queue", label: "发送队列", icon: <History className="h-4 w-4" />, count: sendQueueCount, order: 10000 }
   const specialItems: MailMenuItem[] = [starredItem]
   if (includeScheduled) specialItems.push(scheduledItem)
+  if (includeUnknown) specialItems.push(unknownItem)
   if (includeSendQueue && sendQueueCount > 0) specialItems.push(sendQueueItem)
   return [...folderItems, ...specialItems].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
 }
@@ -1840,11 +1952,11 @@ function searchTextMatches(values: string[], needle: string) {
 function menuAnchorOrder(name: string) {
   switch (name) {
     case "Inbox": return 1000
-    case "Drafts": return 3000
-    case "Sent": return 4000
-    case "Archive": return 5000
-    case "Trash": return 7000
-    case "Spam": return 8000
+    case "Drafts": return 2000
+    case "Sent": return 3000
+    case "Archive": return 4000
+    case "Trash": return 5000
+    case "Spam": return 9000
     default: return 100000
   }
 }
@@ -1912,9 +2024,9 @@ function SearchFilterChip({ label, onRemove }: { label: string; onRemove: () => 
   return (
     <span className="inline-flex h-6 max-w-full items-center gap-1 rounded-full border bg-accent px-2 text-xs text-accent-foreground">
       <span className="truncate">{label}</span>
-      <button type="button" className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground" onClick={onRemove} aria-label={`移除筛选 ${label}`}>
+      <Button type="button" variant="ghost" size="icon" className="h-4 w-4 shrink-0 rounded-full p-0 text-muted-foreground shadow-none hover:bg-background hover:text-foreground" onClick={onRemove} aria-label={`移除筛选 ${label}`}>
         <X className="h-3 w-3" />
-      </button>
+      </Button>
     </span>
   )
 }
@@ -1924,6 +2036,7 @@ function MessageSkeleton() { return <div className="space-y-0">{Array.from({ len
 
 function getEmptyMessage(mailView: MailView, folder: string, total: number) {
   if (mailView === "external") return total === 0 ? "远端文件夹没有邮件" : "当前筛选条件下没有远端邮件"
+  if (mailView === "unknown") return total === 0 ? "暂无未知收件" : "当前筛选条件下没有邮件"
   if (mailView === "scheduled") return total === 0 ? "没有待发送邮件" : "当前搜索没有匹配的定时邮件"
   if (mailView === "sendQueue") return total === 0 ? "发送队列为空" : "当前搜索没有匹配的发送任务"
   if (total > 0) return "当前筛选条件下没有邮件"
@@ -2059,6 +2172,7 @@ function attachmentHref(message: MailMessage, attachmentId: string) {
   if (message.externalAccountId) {
     return `/api/mail/external-accounts/${encodeURIComponent(message.externalAccountId)}/attachments/${encodeURIComponent(message.id)}/${encodeURIComponent(attachmentId)}`
   }
+  if (!message.mailboxId) return `/api/admin/attachments/${encodeURIComponent(attachmentId)}`
   return `/api/mail/attachments/${attachmentId}`
 }
 
@@ -2571,6 +2685,7 @@ function CompactMailView({
   canManageLabels,
   canDownloadAttachments,
   language,
+  tools,
 }: {
   title: string
   icon?: React.ReactNode
@@ -2611,6 +2726,7 @@ function CompactMailView({
   canManageLabels: boolean
   canDownloadAttachments: boolean
   language: Language
+  tools?: React.ReactNode
 }) {
   const selectedIndex = selectedId ? messages.findIndex((message) => message.id === selectedId) : -1
   const previousMessage = selectedIndex > 0 ? messages[selectedIndex - 1] : undefined
@@ -2662,7 +2778,10 @@ function CompactMailView({
               {canOrganize && <BulkActionToolbar pending={bulkPending} onAction={onBulkAction} />}
             </>
           ) : (
-            <div className="ml-auto text-xs text-muted-foreground">{messages.length} / {total} 封</div>
+            <div className="flex items-center gap-1">
+              <div className="text-xs text-muted-foreground">{messages.length} / {total} 封</div>
+              {tools}
+            </div>
           )}
         </div>
       </div>
@@ -2829,7 +2948,7 @@ function TranslatableMailBody({ message, language }: { message: MailMessage; lan
   const { toast } = useToast()
   const targetLanguage = normalizeTranslationLanguage(language)
   const sourceText = React.useMemo(() => (message.bodyText || stripHtml(message.bodyHtml || message.snippet || "")).trim(), [message.bodyHtml, message.bodyText, message.snippet])
-  const shouldShow = targetLanguage && shouldOfferMessageTranslation(sourceText, language)
+  const shouldShow = targetLanguage && (message.externalAccountId || message.mailboxId) && shouldOfferMessageTranslation(sourceText, language)
   const translatedMessage = React.useMemo<MailMessage>(() => ({ ...message, bodyText: translatedText, bodyHtml: translatedHtml }), [message, translatedHtml, translatedText])
   const translate = useMutation({
     mutationFn: () => message.externalAccountId ? api.translateExternalMessage(message.externalAccountId, message.id, targetLanguage!) : api.translateMessage(message.id, targetLanguage!),

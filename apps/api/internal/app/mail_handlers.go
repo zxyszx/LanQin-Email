@@ -2126,11 +2126,16 @@ func (a *App) handleAttachment(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleAdminAttachment(w http.ResponseWriter, r *http.Request) {
 	attID := chi.URLParam(r, "id")
-	row := a.db.QueryRowContext(r.Context(), `SELECT filename,content_type,size_bytes,storage_path FROM attachments WHERE id=?`, attID)
-	var filename, contentType, path string
+	row := a.db.QueryRowContext(r.Context(), `SELECT a.filename,a.content_type,a.size_bytes,a.storage_path,COALESCE(m.mailbox_id,'') FROM attachments a JOIN messages m ON m.id=a.message_id WHERE a.id=?`, attID)
+	var filename, contentType, path, mailboxID string
 	var size int64
-	if err := row.Scan(&filename, &contentType, &size, &path); err != nil {
+	if err := row.Scan(&filename, &contentType, &size, &path, &mailboxID); err != nil {
 		respondError(w, http.StatusNotFound, "attachment not found")
+		return
+	}
+	user := currentUser(r)
+	if mailboxID == "" && (user == nil || user.Role != "admin") {
+		respondError(w, http.StatusForbidden, "system admin required")
 		return
 	}
 	f, err := os.Open(path)

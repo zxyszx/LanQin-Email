@@ -34,10 +34,10 @@ type MailboxForwardingRule struct {
 }
 
 type ForwardingSettings struct {
-	VerifiedEmails     []ForwardingVerifiedEmail `json:"verifiedEmails"`
-	AccountTargetEmail string                    `json:"accountTargetEmail"`
+	VerifiedEmails      []ForwardingVerifiedEmail `json:"verifiedEmails"`
+	AccountTargetEmail  string                    `json:"accountTargetEmail"`
 	AccountTargetEmails []string                  `json:"accountTargetEmails"`
-	MailboxRules       []MailboxForwardingRule   `json:"mailboxRules"`
+	MailboxRules        []MailboxForwardingRule   `json:"mailboxRules"`
 }
 
 func (a *App) handleForwardingSettings(w http.ResponseWriter, r *http.Request) {

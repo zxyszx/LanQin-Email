@@ -52,7 +52,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install web dependencies
-        run: pnpm install --frozen-lockfile --filter lanqin-email-web...
+        run: pnpm install --frozen-lockfile --filter newszxcn-email-web...
 
       - name: Check shadcn/ui usage
         run: pnpm --dir apps/web run check:shadcn

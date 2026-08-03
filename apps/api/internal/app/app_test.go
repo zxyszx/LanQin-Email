@@ -1075,6 +1075,73 @@ func TestMailRulesMailboxIsolation(t *testing.T) {
 	}
 }
 
+func TestMailRuleManagementActions(t *testing.T) {
+	a := newTestApp(t)
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	client := &testClient{t: t, server: ts}
+
+	var login map[string]any
+	if code := client.do("POST", "/api/auth/login", map[string]string{"email": "admin@lanqin.local", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("login code=%d", code)
+	}
+	_, mailbox := defaultAdminUserAndMailbox(t, a)
+	create := func(name, value string) MailRule {
+		t.Helper()
+		var rule MailRule
+		if code := client.do("POST", "/api/me/rules", map[string]any{
+			"mailboxId": mailbox.ID,
+			"name":      name,
+			"matchMode": "all",
+			"conditions": []map[string]string{{
+				"field": "subject", "operator": "contains", "value": value,
+			}},
+			"actions": []map[string]string{{"type": "archive"}},
+			"enabled": true,
+		}, &rule); code != http.StatusCreated {
+			t.Fatalf("create %s code=%d rule=%+v", name, code, rule)
+		}
+		return rule
+	}
+	first := create("first", "欢迎使用 NewSzxcn 邮箱")
+	second := create("second", "two")
+
+	var updated MailRule
+	if code := client.do("POST", "/api/me/rules/"+first.ID, map[string]any{"name": "first updated", "enabled": false}, &updated); code != http.StatusOK {
+		t.Fatalf("update code=%d rule=%+v", code, updated)
+	}
+	if updated.Name != "first updated" || updated.Enabled {
+		t.Fatalf("updated rule=%+v", updated)
+	}
+
+	var applied struct {
+		OK       bool  `json:"ok"`
+		Affected int64 `json:"affected"`
+	}
+	if code := client.do("POST", "/api/me/rules/"+first.ID+"/apply", nil, &applied); code != http.StatusOK || !applied.OK || applied.Affected != 1 {
+		t.Fatalf("apply code=%d body=%+v", code, applied)
+	}
+
+	var moved map[string]any
+	if code := client.do("POST", "/api/me/rules/"+second.ID+"/move", map[string]string{"direction": "down"}, &moved); code != http.StatusOK {
+		t.Fatalf("move code=%d body=%+v", code, moved)
+	}
+	var listed struct {
+		Items []MailRule `json:"items"`
+	}
+	if code := client.do("GET", "/api/me/rules", nil, &listed); code != http.StatusOK || len(listed.Items) != 2 {
+		t.Fatalf("list code=%d items=%+v", code, listed.Items)
+	}
+	if listed.Items[0].ID != first.ID || listed.Items[1].ID != second.ID {
+		t.Fatalf("unexpected order after move: %+v", listed.Items)
+	}
+
+	var missing map[string]any
+	if code := client.do("POST", "/api/me/rules/missing/apply", nil, &missing); code != http.StatusNotFound {
+		t.Fatalf("missing apply code=%d body=%+v", code, missing)
+	}
+}
+
 func TestBlockedSenderMovesInboundToSpamAndIsolatesUsers(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())
@@ -1768,6 +1835,47 @@ func TestCatchAllStoresUnregisteredMailForAdminOnly(t *testing.T) {
 	}
 	if got := list.Items[0].RecipientAddr; got != "ghost@lanqin.local" {
 		t.Fatalf("recipientAddress=%q", got)
+	}
+	unregisteredMessageID := list.Items[0].ID
+
+	var auditGroup PermissionGroup
+	if code := admin.do("POST", "/api/admin/permission-groups", map[string]any{
+		"name":        "Catch-all Message Auditors",
+		"description": "Test group for registered-message audit access",
+		"permissions": []string{PermissionMessagesView, PermissionMessagesRead, PermissionMessagesAttachment},
+	}, &auditGroup); code != http.StatusCreated {
+		t.Fatalf("create message audit group code=%d group=%+v", code, auditGroup)
+	}
+	var auditor AdminUser
+	if code := admin.do("POST", "/api/admin/users", map[string]any{
+		"email":              "message-auditor@lanqin.local",
+		"displayName":        "Message Auditor",
+		"role":               "user",
+		"password":           "Password123!",
+		"disabled":           false,
+		"permissionGroupIds": []string{auditGroup.ID},
+	}, &auditor); code != http.StatusCreated {
+		t.Fatalf("create message auditor code=%d user=%+v", code, auditor)
+	}
+	auditorClient := &testClient{t: t, server: ts}
+	if code := auditorClient.do("POST", "/api/auth/login", map[string]string{"email": "message-auditor@lanqin.local", "password": "Password123!"}, &login); code != http.StatusOK {
+		t.Fatalf("auditor login code=%d body=%v", code, login)
+	}
+	var errBody map[string]any
+	if code := auditorClient.do("GET", "/api/admin/messages?mailboxId=unregistered", nil, &errBody); code != http.StatusForbidden {
+		t.Fatalf("message auditor unregistered list code=%d body=%v", code, errBody)
+	}
+	list.Items = nil
+	if code := auditorClient.do("GET", "/api/admin/messages?q=stored%20for%20admin", nil, &list); code != http.StatusOK {
+		t.Fatalf("message auditor all-mail query code=%d items=%+v", code, list.Items)
+	}
+	for _, item := range list.Items {
+		if item.MailboxID == "" {
+			t.Fatalf("message auditor all-mail query exposed unregistered mail: %+v", item)
+		}
+	}
+	if code := auditorClient.do("GET", "/api/admin/messages/"+unregisteredMessageID, nil, &errBody); code != http.StatusForbidden {
+		t.Fatalf("message auditor unregistered detail code=%d body=%v", code, errBody)
 	}
 }
 

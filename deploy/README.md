@@ -1,4 +1,23 @@
-# LanQin Email Docker 部署说明
+# NewSzxcn Email Docker 部署说明
+
+## 一键安装与更新
+
+推荐直接使用仓库根目录的管理脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh | sudo bash
+```
+
+后续操作：
+
+```bash
+sudo newszxcn-email update
+sudo newszxcn-email status
+sudo newszxcn-email logs
+sudo newszxcn-email rollback
+```
+
+一键安装会把配置和数据放在 `/opt/newszxcn-email`，并部署内部 Watchtower 更新服务。该服务不映射公网端口，仅接受带随机令牌的容器内请求；后台“立即更新”也只允许超级管理员执行。
 
 ## 最简单部署：单容器镜像版
 
@@ -55,12 +74,12 @@ docker compose down
 默认镜像：
 
 ```text
-ghcr.io/lanqin996/lanqin-email:latest
-ghcr.io/lanqin996/lanqin-email-api:latest
-ghcr.io/lanqin996/lanqin-email-web:latest
-ghcr.io/lanqin996/lanqin-email-postfix:latest
-ghcr.io/lanqin996/lanqin-email-dovecot:latest
-ghcr.io/lanqin996/lanqin-email-rspamd:latest
+ghcr.io/zxyszx/newszxcn-email:latest
+ghcr.io/zxyszx/newszxcn-email-api:latest
+ghcr.io/zxyszx/newszxcn-email-web:latest
+ghcr.io/zxyszx/newszxcn-email-postfix:latest
+ghcr.io/zxyszx/newszxcn-email-dovecot:latest
+ghcr.io/zxyszx/newszxcn-email-rspamd:latest
 ```
 
 如果拉取时报：
@@ -212,4 +231,3 @@ docker compose logs --tail=200 lanqin-email
 - 建议在服务器或边缘网关配置 HTTPS。
 - 云厂商通常默认封禁 25 端口，需要单独申请解封。
 - SQLite 适合 V1 单机部署；多节点部署前迁移到 PostgreSQL，并把 Postfix/Dovecot maps 改为 PostgreSQL。
-

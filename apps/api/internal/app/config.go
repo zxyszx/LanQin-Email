@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Addr                            string
+	AppVersion                      string
 	DBPath                          string
 	DataDir                         string
 	CookieName                      string
@@ -55,12 +56,16 @@ type Config struct {
 	StatusWebhookURL                string
 	StatusWebhookSecret             string
 	StatusWebhookAllowPrivateHosts  bool
+	ReleaseAPIURL                   string
+	UpdateServiceURL                string
+	UpdateServiceToken              string
 }
 
 func LoadConfig() Config {
 	dataDir := getenv("LANQIN_DATA_DIR", "./data")
 	return Config{
 		Addr:                            getenv("LANQIN_ADDR", ":8080"),
+		AppVersion:                      getenv("LANQIN_APP_VERSION", BuildVersion),
 		DBPath:                          getenv("LANQIN_DB_PATH", filepath.Join(dataDir, "lanqin.db")),
 		DataDir:                         dataDir,
 		CookieName:                      getenv("LANQIN_COOKIE_NAME", "lanqin_session"),
@@ -107,6 +112,9 @@ func LoadConfig() Config {
 		StatusWebhookURL:                getenv("LANQIN_STATUS_WEBHOOK_URL", ""),
 		StatusWebhookSecret:             getenv("LANQIN_STATUS_WEBHOOK_SECRET", ""),
 		StatusWebhookAllowPrivateHosts:  getenvBool("LANQIN_STATUS_WEBHOOK_ALLOW_PRIVATE_HOSTS", false),
+		ReleaseAPIURL:                   getenv("LANQIN_RELEASE_API_URL", "https://api.github.com/repos/zxyszx/NewSzxcn-Email/releases/latest"),
+		UpdateServiceURL:                getenv("LANQIN_UPDATE_SERVICE_URL", ""),
+		UpdateServiceToken:              getenv("LANQIN_UPDATE_SERVICE_TOKEN", ""),
 	}
 }
 

@@ -6,9 +6,13 @@ COPY apps/api/go.mod apps/api/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY apps/api ./
+ARG APP_VERSION="dev"
+ARG APP_COMMIT=""
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/lanqin-api ./cmd/server
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+      -ldflags "-s -w -X lanqin-email-api/internal/app.BuildVersion=${APP_VERSION} -X lanqin-email-api/internal/app.BuildCommit=${APP_COMMIT}" \
+      -o /out/lanqin-api ./cmd/server
 
 FROM debian:bookworm-slim
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

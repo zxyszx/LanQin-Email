@@ -565,6 +565,201 @@ func (a *App) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (a *App) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	id := chi.URLParam(r, "id")
+	item, err := a.ruleByID(r.Context(), user.ID, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusNotFound, "rule not found")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load rule")
+		return
+	}
+	var req struct {
+		MailboxID      *string              `json:"mailboxId"`
+		Name           *string              `json:"name"`
+		MatchMode      *string              `json:"matchMode"`
+		Conditions     *[]MailRuleCondition `json:"conditions"`
+		Actions        *[]MailRuleAction    `json:"actions"`
+		ApplyExisting  *bool                `json:"applyToExisting"`
+		StopProcessing *bool                `json:"stopProcessing"`
+		Enabled        *bool                `json:"enabled"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	if req.MailboxID != nil {
+		mailboxID, ok := a.optionalMailboxIDForUser(r, *req.MailboxID)
+		if !ok {
+			respondError(w, http.StatusNotFound, "mailbox not found")
+			return
+		}
+		item.MailboxID = mailboxID
+	}
+	if req.Name != nil {
+		item.Name = strings.TrimSpace(*req.Name)
+		if item.Name == "" {
+			item.Name = "收件规则"
+		}
+	}
+	if req.MatchMode != nil {
+		raw := strings.ToLower(strings.TrimSpace(*req.MatchMode))
+		if raw != "all" && raw != "and" && raw != "any" && raw != "or" {
+			badRequest(w, errors.New("invalid match mode"))
+			return
+		}
+		item.MatchMode = normalizeRuleMatchMode(raw)
+	}
+	if req.Conditions != nil {
+		item.Conditions = normalizeRuleConditions(*req.Conditions, "", "")
+		if len(item.Conditions) == 0 {
+			badRequest(w, errors.New("rule condition is required"))
+			return
+		}
+	}
+	if req.Actions != nil {
+		item.Actions = normalizeRuleActions(*req.Actions, "")
+		item.Actions, err = a.cleanRuleActions(r.Context(), user.ID, item.Actions)
+		if err != nil || len(item.Actions) == 0 {
+			if err == nil {
+				err = errors.New("rule action is required")
+			}
+			badRequest(w, err)
+			return
+		}
+	}
+	if req.ApplyExisting != nil {
+		item.ApplyToExisting = *req.ApplyExisting
+	}
+	if req.StopProcessing != nil {
+		item.StopProcessing = *req.StopProcessing
+	}
+	if req.Enabled != nil {
+		item.Enabled = *req.Enabled
+	}
+	conditionsJSON, err := json.Marshal(item.Conditions)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	actionsJSON, err := json.Marshal(item.Actions)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	item.FromContains = legacyConditionValue(item.Conditions, "from")
+	item.SubjectContains = legacyConditionValue(item.Conditions, "subject")
+	item.Action = item.Actions[0].Type
+	now := a.now().UTC().Format(time.RFC3339Nano)
+	_, err = a.db.ExecContext(r.Context(), `UPDATE mail_rules SET mailbox_id=?,name=?,match_mode=?,conditions_json=?,actions_json=?,from_contains=?,subject_contains=?,action=?,apply_to_existing=?,stop_processing=?,enabled=?,updated_at=? WHERE id=? AND user_id=?`, item.MailboxID, item.Name, item.MatchMode, string(conditionsJSON), string(actionsJSON), item.FromContains, item.SubjectContains, item.Action, boolInt(item.ApplyToExisting), boolInt(item.StopProcessing), boolInt(item.Enabled), now, id, user.ID)
+	if err != nil {
+		badRequest(w, err)
+		return
+	}
+	updated, err := a.ruleByID(r.Context(), user.ID, id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load rule")
+		return
+	}
+	respondJSON(w, http.StatusOK, updated)
+}
+
+func (a *App) handleMoveRule(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	var req struct {
+		Direction string `json:"direction"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	if req.Direction != "up" && req.Direction != "down" {
+		badRequest(w, errors.New("invalid direction"))
+		return
+	}
+	type orderedRule struct{ id, createdAt string }
+	rows, err := a.db.QueryContext(r.Context(), `SELECT id,created_at FROM mail_rules WHERE user_id=? ORDER BY created_at DESC`, user.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load rules")
+		return
+	}
+	items := []orderedRule{}
+	for rows.Next() {
+		var item orderedRule
+		if err := rows.Scan(&item.id, &item.createdAt); err != nil {
+			rows.Close()
+			respondError(w, http.StatusInternalServerError, "failed to scan rules")
+			return
+		}
+		items = append(items, item)
+	}
+	rows.Close()
+	index := -1
+	for i := range items {
+		if items[i].id == chi.URLParam(r, "id") {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		respondError(w, http.StatusNotFound, "rule not found")
+		return
+	}
+	target := index - 1
+	if req.Direction == "down" {
+		target = index + 1
+	}
+	if target < 0 || target >= len(items) {
+		respondJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to move rule")
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(r.Context(), `UPDATE mail_rules SET created_at=? WHERE id=? AND user_id=?`, items[target].createdAt, items[index].id, user.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to move rule")
+		return
+	}
+	if _, err := tx.ExecContext(r.Context(), `UPDATE mail_rules SET created_at=? WHERE id=? AND user_id=?`, items[index].createdAt, items[target].id, user.ID); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to move rule")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to move rule")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (a *App) handleApplyRule(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	item, err := a.ruleByID(r.Context(), user.ID, chi.URLParam(r, "id"))
+	if errors.Is(err, sql.ErrNoRows) {
+		respondError(w, http.StatusNotFound, "rule not found")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load rule")
+		return
+	}
+	affected, err := a.applyRuleToExistingMessages(r.Context(), user.ID, item.MailboxID, item)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to apply rule")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"ok": true, "affected": affected})
+}
+
+func (a *App) ruleByID(ctx context.Context, userID, id string) (MailRule, error) {
+	return scanRule(a.db.QueryRowContext(ctx, `SELECT id,user_id,mailbox_id,name,match_mode,conditions_json,actions_json,from_contains,subject_contains,action,apply_to_existing,stop_processing,enabled,created_at FROM mail_rules WHERE id=? AND user_id=?`, id, userID))
+}
+
 func (a *App) handleListBlockedSenders(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	rows, err := a.db.QueryContext(r.Context(), `SELECT id,user_id,mailbox_id,email,reason,created_at FROM blocked_senders WHERE user_id=? ORDER BY created_at DESC`, user.ID)
@@ -1114,7 +1309,7 @@ func (a *App) applyInboundControls(ctx context.Context, messageID, mailboxID, fr
 		a.moveBlockedMessageToSpam(ctx, messageID, mailboxID)
 		return
 	}
-	rows, err := a.db.QueryContext(ctx, `SELECT id,user_id,mailbox_id,name,match_mode,conditions_json,actions_json,from_contains,subject_contains,action,apply_to_existing,stop_processing,enabled,created_at FROM mail_rules WHERE user_id=? AND (mailbox_id='' OR mailbox_id=?) AND enabled=1 ORDER BY created_at`, userID, mailboxID)
+	rows, err := a.db.QueryContext(ctx, `SELECT id,user_id,mailbox_id,name,match_mode,conditions_json,actions_json,from_contains,subject_contains,action,apply_to_existing,stop_processing,enabled,created_at FROM mail_rules WHERE user_id=? AND (mailbox_id='' OR mailbox_id=?) AND enabled=1 ORDER BY created_at DESC`, userID, mailboxID)
 	if err != nil {
 		return
 	}
@@ -1620,13 +1815,23 @@ func (a *App) applyRuleToExistingMessages(ctx context.Context, userID, mailboxID
 	if err != nil {
 		return 0, err
 	}
-	messages := []ruleMessage{}
+	messageIDs := []string{}
 	var count int64
 	for rows.Next() {
 		var messageID string
 		if err := rows.Scan(&messageID); err != nil {
+			rows.Close()
 			return count, err
 		}
+		messageIDs = append(messageIDs, messageID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return count, err
+	}
+	rows.Close()
+	messages := []ruleMessage{}
+	for _, messageID := range messageIDs {
 		msg, ok := a.ruleMessageByID(ctx, messageID)
 		if !ok {
 			continue
@@ -1636,10 +1841,6 @@ func (a *App) applyRuleToExistingMessages(ctx context.Context, userID, mailboxID
 		}
 		messages = append(messages, msg)
 	}
-	if err := rows.Err(); err != nil {
-		return count, err
-	}
-	rows.Close()
 	for _, msg := range messages {
 		if err := a.applyRuleActions(ctx, msg.MailboxID, msg.ID, rule.Actions); err != nil {
 			return count, err

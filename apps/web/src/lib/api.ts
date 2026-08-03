@@ -1,4 +1,4 @@
-import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, Attachment, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken } from "./api-types"
+import type { User, AdminUser, AdminOverview, Domain, Mailbox, Alias, MailFolder, Attachment, MailLabel, MailMessage, MailTranslation, DNSRecord, DNSCheckResult, ListResponse, SendPayload, DraftPayload, ScheduleSendPayload, ScheduledSend, SendQueueItem, SendQueueAuditEvent, SendQueueStatus, Contact, MailSignature, MailRule, MailRuleCondition, MailRuleAction, BlockedSender, MailStats, ForwardingSettings, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapOAuthStartPayload, ExternalImapSyncRun, MailboxApplyOptions, MailTemplate, MaildirSyncHealth, SystemSettings, SystemSettingsPayload, SystemVersion, SystemUpdateResult, PublicSettings, LoginPayload, LoginResponse, RegisterPayload, PermissionGroup, PermissionInfo, PermissionKey, PermissionLimits, APIToken } from "./api-types"
 export * from "./api-types"
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -69,6 +69,35 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   }
 }
 
+async function requestFile(path: string): Promise<Blob> {
+  const res = await fetch(path, { credentials: "include" })
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`
+    try { const body = await res.json(); message = body.error || message } catch {}
+    throw new Error(message)
+  }
+  return res.blob()
+}
+
+async function uploadForm<T>(path: string, form: FormData): Promise<T> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 5 * 60_000)
+  try {
+    const res = await fetch(path, { method: "POST", credentials: "include", body: form, signal: controller.signal })
+    if (!res.ok) {
+      let message = `${res.status} ${res.statusText}`
+      try { const body = await res.json(); message = body.error || message } catch {}
+      throw new Error(message)
+    }
+    return res.json() as Promise<T>
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error("导入超时，请缩小文件后重试")
+    throw error instanceof Error ? error : new Error("网络请求失败")
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 export const api = {
   publicSettings: () => request<PublicSettings>("/api/public/settings"),
   register: (payload: RegisterPayload) => request<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(payload) }),
@@ -95,6 +124,9 @@ export const api = {
   defaultSignature: (mailboxId?: string) => request<{ signature: MailSignature | null }>(`/api/me/signatures/default${mailboxId ? `?mailboxId=${encodeURIComponent(mailboxId)}` : ""}`),
   rules: () => request<ListResponse<MailRule>>("/api/me/rules"),
   createRule: (payload: { mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; enabled: boolean }) => request<MailRule>("/api/me/rules", { method: "POST", body: JSON.stringify(payload) }),
+  updateRule: (id: string, payload: Partial<{ mailboxId: string; name: string; matchMode: "all" | "any"; conditions: MailRuleCondition[]; actions: MailRuleAction[]; applyToExisting: boolean; stopProcessing: boolean; enabled: boolean }>) => request<MailRule>(`/api/me/rules/${id}`, { method: "POST", body: JSON.stringify(payload) }),
+  moveRule: (id: string, direction: "up" | "down") => request<{ ok: boolean }>(`/api/me/rules/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) }),
+  applyRule: (id: string) => request<{ ok: boolean; affected: number }>(`/api/me/rules/${id}/apply`, { method: "POST" }),
   deleteRule: (id: string) => request<{ ok: boolean }>(`/api/me/rules/${id}`, { method: "DELETE" }),
   blockedSenders: () => request<ListResponse<BlockedSender>>("/api/me/blocked-senders"),
   createBlockedSender: (payload: { mailboxId: string; email: string; reason: string }) => request<BlockedSender>("/api/me/blocked-senders", { method: "POST", body: JSON.stringify(payload) }),
@@ -168,6 +200,8 @@ export const api = {
     const suffix = query.toString()
     return request<ListResponse<SendQueueAuditEvent>>(`/api/admin/send-audit${suffix ? `?${suffix}` : ""}`)
   },
+  systemVersion: () => request<SystemVersion>("/api/admin/system/version"),
+  updateSystem: () => request<SystemUpdateResult>("/api/admin/system/update", { method: "POST", timeoutMs: 45_000 }),
   systemSettings: () => request<SystemSettings>("/api/admin/settings"),
   maildirSyncHealth: () => request<MaildirSyncHealth>("/api/admin/maildir-sync/health"),
   updateSystemSettings: (payload: SystemSettingsPayload) => request<SystemSettings>("/api/admin/settings", { method: "POST", body: JSON.stringify(payload) }),
@@ -219,6 +253,20 @@ export const api = {
     appendMailSearchParams(params, search)
     if (mailboxId) params.set("mailboxId", mailboxId)
     return request<ListResponse<MailMessage>>(`/api/mail/starred?${params.toString()}`)
+  },
+  exportMail: (params: { view: "folder" | "starred" | "label" | "unknown"; mailboxId?: string; folder?: string; labelId?: string }) => {
+    const query = new URLSearchParams({ view: params.view })
+    if (params.mailboxId) query.set("mailboxId", params.mailboxId)
+    if (params.folder) query.set("folder", params.folder)
+    if (params.labelId) query.set("labelId", params.labelId)
+    return requestFile(`/api/mail/export?${query.toString()}`)
+  },
+  importMail: (files: File[], payload: { mailboxId: string; folder: string }) => {
+    const form = new FormData()
+    form.set("mailboxId", payload.mailboxId)
+    form.set("folder", payload.folder)
+    files.forEach((file) => form.append("files", file))
+    return uploadForm<{ ok: boolean; imported: number; skipped: number; errors: string[] }>("/api/mail/import", form)
   },
   message: (id: string, options: { markRead?: boolean } = {}) => request<MailMessage>(`/api/mail/messages/${id}${options.markRead === false ? "?markRead=0" : ""}`),
   translateMessage: (id: string, targetLanguage: string) => request<MailTranslation>(`/api/mail/messages/${id}/translate`, { method: "POST", body: JSON.stringify({ targetLanguage }), timeoutMs: MAIL_DELIVERY_TIMEOUT_MS }),

@@ -94,14 +94,14 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		LoginName          string   `json:"loginName"`
-		Email              string   `json:"email"`
-		DisplayName        string   `json:"displayName"`
-		Role               string   `json:"role"`
-		Password           string   `json:"password"`
-		Disabled           bool     `json:"disabled"`
-		MailboxLimitOverride *int   `json:"mailboxLimitOverride"`
-		PermissionGroupIDs []string `json:"permissionGroupIds"`
+		LoginName            string   `json:"loginName"`
+		Email                string   `json:"email"`
+		DisplayName          string   `json:"displayName"`
+		Role                 string   `json:"role"`
+		Password             string   `json:"password"`
+		Disabled             bool     `json:"disabled"`
+		MailboxLimitOverride *int     `json:"mailboxLimitOverride"`
+		PermissionGroupIDs   []string `json:"permissionGroupIds"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -183,11 +183,11 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	current := currentUser(r)
 	var req struct {
-		DisplayName        string    `json:"displayName"`
-		Role               string    `json:"role"`
-		Disabled           *bool     `json:"disabled"`
-		MailboxLimitOverride *int    `json:"mailboxLimitOverride"`
-		PermissionGroupIDs *[]string `json:"permissionGroupIds"`
+		DisplayName          string    `json:"displayName"`
+		Role                 string    `json:"role"`
+		Disabled             *bool     `json:"disabled"`
+		MailboxLimitOverride *int      `json:"mailboxLimitOverride"`
+		PermissionGroupIDs   *[]string `json:"permissionGroupIds"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		badRequest(w, err)
@@ -779,6 +779,13 @@ func (a *App) handleAdminMessages(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	mailboxID := strings.TrimSpace(r.URL.Query().Get("mailboxId"))
 	folder := strings.TrimSpace(r.URL.Query().Get("folder"))
+	user := currentUser(r)
+	isSystemAdmin := user != nil && user.Role == "admin"
+	wantsUnregistered := mailboxID == "unregistered" || strings.EqualFold(folder, "Unregistered")
+	if wantsUnregistered && !isSystemAdmin {
+		respondError(w, http.StatusForbidden, "system admin required")
+		return
+	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("cursor"))
 	if offset < 0 {
 		offset = 0
@@ -787,6 +794,9 @@ func (a *App) handleAdminMessages(w http.ResponseWriter, r *http.Request) {
 
 	where := []string{"1=1"}
 	args := []any{}
+	if !isSystemAdmin {
+		where = append(where, "m.mailbox_id IS NOT NULL")
+	}
 	if mailboxID == "unregistered" {
 		where = append(where, "m.mailbox_id IS NULL")
 	} else if mailboxID != "" && mailboxID != "all" {
@@ -842,6 +852,11 @@ func (a *App) handleAdminMessage(w http.ResponseWriter, r *http.Request) {
 	msg, err := a.messageByID(r.Context(), id, true)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "message not found")
+		return
+	}
+	user := currentUser(r)
+	if msg.MailboxID == "" && (user == nil || user.Role != "admin") {
+		respondError(w, http.StatusForbidden, "system admin required")
 		return
 	}
 	if err := a.db.QueryRowContext(r.Context(), `SELECT COALESCE(mb.address,''),COALESCE(u.email,''),COALESCE(m.recipient_addr,'')

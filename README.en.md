@@ -1,52 +1,62 @@
-# NewSzxcn-Email
+# NewSzxcn Email
 
-NewSzxcn-Email is a self-hosted, manageable, ready-to-run open-source email system.
+NewSzxcn Email is a self-hosted mail server with a complete Webmail client and administration console. It bundles Go, React, Postfix, Dovecot, Rspamd, and SQLite into an all-in-one Docker deployment.
 
-Live site: [mail.newszxcn.com](https://mail.newszxcn.com)
+[Releases](https://github.com/zxyszx/NewSzxcn-Email/releases) · [Chinese README](README.md)
 
 ## Features
 
-- Webmail: inbox, compose, attachments, drafts, search, stars, labels, read/unread
-- Multi-mailbox and multi-domain management, DKIM, DNS checks, forwarding
-- Account management, mailbox quotas, permission quotas, registration, mailbox requests
-- Admin console, all mail, send queue, system settings
-- Postfix, Dovecot, Rspamd, SQLite, Docker single-container deployment
+- Webmail with compose, drafts, attachments, search, labels, folders, reminders, import, and export
+- Multiple domains and mailboxes, DKIM, DNS checks, verified forwarding, and external IMAP
+- Incoming mail rules with conditions, ordering, forwarding, moving, and bulk application
+- Administration for users, permission quotas, domains, mailboxes, messages, and send queues
+- SMTP, IMAP, POP3, Postfix, Dovecot, Rspamd, and SMTP Submission
+- Release checks, admin-only web updates, pre-update database backups, and CLI rollback
 
-## Screenshots
+## One-command install
 
-<p>
-  <img src="docs/screenshots/mail-preview.png" alt="Mailbox" width="49%" />
-  <img src="docs/screenshots/compose-preview.png" alt="Compose" width="49%" />
-</p>
-
-<p>
-  <img src="docs/screenshots/admin-preview.png" alt="Admin console" width="49%" />
-  <img src="docs/screenshots/client-preview.png" alt="Mailbox management" width="49%" />
-</p>
-
-## Stack
-
-- Backend: Go
-- Frontend: React + TypeScript + shadcn/ui
-- Database: SQLite
-- Mail stack: Postfix + Dovecot + Rspamd
-- Deployment: Docker / Docker Compose
-
-## Quick Deploy
+Debian and Ubuntu on `amd64` or `arm64` are supported.
 
 ```bash
-cd deploy
-cp .env.example .env
-# Edit domain, public URL, admin email, and admin password
-docker compose up -d --build
+curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.sh | sudo bash
 ```
 
-Public mail delivery requires MX, SPF, DKIM, DMARC, and open mail ports.
+The installer configures `/opt/newszxcn-email`, starts the Docker services, and waits for the health check. DNS records and provider port restrictions must still be configured by the operator.
 
-## Note
+## Update
 
-This is the NewSzxcn maintained version. Future changes are based on this repository.
+System administrators can click the version badge in the admin sidebar to review and install a GitHub release. The updater is only reachable on the internal Docker network.
+
+CLI update and rollback:
+
+```bash
+sudo newszxcn-email update
+sudo newszxcn-email rollback
+```
+
+Useful commands:
+
+```bash
+sudo newszxcn-email status
+sudo newszxcn-email logs
+sudo newszxcn-email uninstall
+```
+
+The uninstall command preserves configuration, messages, and the database under `/opt/newszxcn-email`.
+
+## Required ports
+
+Open TCP ports `25`, `80`, `443`, `465`, `587`, `993`, and `995` as needed. Public delivery also requires correct MX, SPF, DKIM, and DMARC records.
+
+## Manual source deployment
+
+```bash
+git clone https://github.com/zxyszx/NewSzxcn-Email.git
+cd NewSzxcn-Email/deploy
+cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](LICENSE)

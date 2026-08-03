@@ -7,6 +7,7 @@ import { AuthGuard } from "@/components/auth-guard"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { hasAnyPermission } from "@/lib/permissions"
 import type { PermissionKey } from "@/lib/api-types"
 import {
@@ -66,20 +67,23 @@ function ProtectedContent() {
     <SidebarProvider>
       <Sidebar collapsible="icon">
         <SidebarHeader className="border-b">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
-                <Link to="/">
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <Mail className="size-4" />
-                  </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">NewSzxcn 邮箱</span>
-                  </div>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+          <div className="space-y-1 group-data-[collapsible=icon]:space-y-0">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton size="lg" asChild>
+                  <Link to="/">
+                    <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                      <Mail className="size-4" />
+                    </div>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-semibold">NewSzxcn 邮箱</span>
+                    </div>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            {isAdminRoute && <SystemVersionDialog className="ml-10" />}
+          </div>
         </SidebarHeader>
         <SidebarContent>
           {isAdminRoute && visibleAdminSections.length > 0 && (

@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BarChart3, Ban, BookOpen, ChevronDown, Clock3, Code2, Contact, Copy, ExternalLink, HardDrive, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
+import { ArrowLeft, BarChart3, Ban, Bell, BellOff, BookOpen, ChevronDown, ChevronUp, Clock3, Code2, Contact, Copy, HardDrive, Image, Info, KeyRound, Laptop, Link2, LogOut, Mail, MailCheck, MailX, MessageSquare, Moon, PanelLeftOpen, PencilLine, PlayCircle, Plus, RefreshCcw, Search, SendHorizontal, Settings, ShieldCheck, SlidersHorizontal, Sun, Trash2, Users, X } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { api, APIToken, ExternalImapAccount, ExternalImapAccountPayload, ExternalImapFolder, ExternalImapOAuthProvider, ExternalImapStorageMode, ExternalImapSyncRun, ExternalImapTlsMode, ForwardingSettings, ForwardingVerifiedEmail, MailLabel, MailRule, MailRuleAction, MailRuleCondition, Mailbox, MailboxApplyOptions, MailSignature, MailStats, PermissionLimits } from "@/lib/api"
 import { cn, formatBytes } from "@/lib/utils"
@@ -24,6 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -52,7 +53,6 @@ const accountSettingTabs: { key: AccountSettingsTab; label: string }[] = [
   { key: "security", label: "安全" },
 ]
 const actionLabels: Record<string, string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "邮件转发" }
-
 export function ProfilePage() {
   const me = useMe()
   const qc = useQueryClient()
@@ -107,6 +107,8 @@ export function ProfilePage() {
   const contacts = useQuery({ queryKey: ["contacts"], queryFn: api.contacts, enabled: canManageContacts })
   const signatures = useQuery({ queryKey: ["signatures"], queryFn: api.signatures, enabled: canManageSignatures })
   const rules = useQuery({ queryKey: ["rules"], queryFn: api.rules, enabled: canManageRules })
+  const ruleForwarding = useQuery({ queryKey: ["forwarding-settings"], queryFn: api.forwardingSettings, enabled: canManageRules && canAccessMail })
+  const ruleVerifiedEmails = React.useMemo(() => ruleForwarding.data?.verifiedEmails.filter((item) => item.verified).map((item) => item.email) || [], [ruleForwarding.data?.verifiedEmails])
   const blocked = useQuery({ queryKey: ["blocked-senders"], queryFn: api.blockedSenders, enabled: canManageBlocked })
   const selectedMailbox = React.useMemo(() => mailboxes.data?.items.find((m) => m.id === mailboxId), [mailboxes.data?.items, mailboxId])
   const activeMailboxId = selectedMailbox?.id || ""
@@ -211,6 +213,27 @@ export function ProfilePage() {
     onError: (error) => toast({ title: "保存失败", description: error.message }),
   })
   const deleteRule = useMutation({ mutationFn: api.deleteRule, onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); toast({ title: "规则已删除" }) } })
+  const updateRule = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<RuleCreatePayload> }) => api.updateRule(id, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); setRuleDialogOpen(false); toast({ title: "收件规则已更新" }) },
+    onError: (error) => toast({ title: "更新失败", description: error.message }),
+  })
+  const moveRule = useMutation({
+    mutationFn: ({ id, direction }: { id: string; direction: "up" | "down" }) => api.moveRule(id, direction),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
+    onError: (error) => toast({ title: "排序失败", description: error.message }),
+  })
+  const applyRule = useMutation({
+    mutationFn: api.applyRule,
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["messages"] })
+      qc.invalidateQueries({ queryKey: ["folders"] })
+      qc.invalidateQueries({ queryKey: ["mail-stats"] })
+      qc.invalidateQueries({ queryKey: ["labels"] })
+      toast({ title: `规则已应用到 ${res.affected} 封现有邮件` })
+    },
+    onError: (error) => toast({ title: "应用失败", description: error.message }),
+  })
   const createBlocked = useMutation({
     mutationFn: (form: FormData) => api.createBlockedSender({ mailboxId: blockedMailboxId === "all" ? "" : blockedMailboxId, email: String(form.get("email") || ""), reason: String(form.get("reason") || "") }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["blocked-senders"] }); toast({ title: "拦截规则已保存" }) },
@@ -315,7 +338,7 @@ export function ProfilePage() {
   if (me.isError || !user) return <div className="grid h-svh place-items-center text-muted-foreground">登录状态已失效</div>
 
   const sidebarContent = (
-    <aside className="flex h-full w-[256px] shrink-0 flex-col border-r border-border bg-card">
+    <div className="flex h-full w-[256px] shrink-0 flex-col border-r border-border bg-card">
       <div className="h-[64px] border-b">
         <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
       </div>
@@ -327,7 +350,7 @@ export function ProfilePage() {
               key={key}
               type="button"
               className={cn(
-                "flex h-[36px] w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors",
+                "flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors",
                 tab === key ? "bg-muted font-semibold text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
               )}
               onClick={() => setTab(key)}
@@ -344,10 +367,16 @@ export function ProfilePage() {
           <span>退出登录</span>
         </Button>
       </div>
-    </aside>
+    </div>
   )
 
   const pageTitle = tab === "feedback" ? "反馈与工单" : tabs[tab].label
+  const pageSubtitle = tab === "stats" ? "查看邮件收发趋势、分布情况和常用联系人。" : undefined
+  const pageAction = tab === "stats"
+    ? <StatsRangeTabs rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} />
+    : tab === "apiTokens"
+      ? <Button asChild variant="outline" size="sm" className="h-8 px-3 text-xs"><a href="https://github.com/zxyszx/NewSzxcn-Email/blob/main/docs/API.md" target="_blank" rel="noreferrer"><BookOpen className="h-4 w-4" />API 文档</a></Button>
+      : undefined
 
   return (
     <div className="h-svh overflow-hidden bg-background">
@@ -367,9 +396,9 @@ export function ProfilePage() {
             <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/")} aria-label="返回邮箱"><ArrowLeft className="h-4 w-4" /></Button>
           </header>
           <ScrollArea className="min-h-0 flex-1">
-            <main className="w-full px-4 pb-10 pt-4">
-              <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={cn("w-full", tab === "rules" ? "mr-auto" : "mx-auto", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : tab === "rules" ? "max-w-[1320px]" : "max-w-[1024px]")}>{renderTab()}</div>
+            <main className="w-full pb-10">
+              <SettingsPageHeader title={pageTitle} subtitle={pageSubtitle} action={pageAction} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
+              <div className={contentFrameClass(tab)}>{renderTab()}</div>
             </main>
           </ScrollArea>
         </div>
@@ -377,9 +406,9 @@ export function ProfilePage() {
         <div className="flex h-full min-h-0 w-full">
           {sidebarContent}
           <section className="min-w-0 flex-1 overflow-y-auto">
-            <main className="px-[24px] pb-12 pt-4">
-              <SettingsPageHeader title={pageTitle} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
-              <div className={cn("w-full", tab === "rules" ? "mr-auto" : "mx-auto", tab === "mailboxes" ? "pt-[34px]" : "pt-6", tab === "profile" || tab === "mailboxes" ? "max-w-[896px]" : tab === "stats" ? "max-w-[854px]" : tab === "rules" ? "max-w-[1320px]" : "max-w-[1024px]")}>{renderTab()}</div>
+            <main className="pb-12">
+              <SettingsPageHeader title={pageTitle} subtitle={pageSubtitle} action={pageAction} activeTab={tab === "profile" ? accountTab : undefined} onAccountTabChange={setAccountTab} />
+              <div className={contentFrameClass(tab)}>{renderTab()}</div>
             </main>
           </section>
         </div>
@@ -449,11 +478,10 @@ export function ProfilePage() {
         onSyncExternalFolder={(id, folder) => syncExternalImapFolder.mutate({ id, folder })}
       />
     )
-    if (tab === "apiTokens") return <ApiTokensSection items={apiTokens.data?.items || []} loading={apiTokens.isLoading} pending={createApiToken.isPending || updateApiToken.isPending || deleteApiToken.isPending} onCreate={(payload) => createApiToken.mutateAsync(payload)} onUpdate={(id, payload) => updateApiToken.mutate({ id, payload })} onDelete={(id) => deleteApiToken.mutate(id)} onCopy={copy} />
     if (tab === "contacts") return <ContactsSection items={contacts.data?.items || []} loading={contacts.isLoading} pending={createContact.isPending} onCreate={(form) => createContact.mutate(form)} onDelete={(id) => deleteContact.mutate(id)} onCopy={copy} />
     if (tab === "cleanup") return <CleanupSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} showStats={canViewStats} pending={cleanup.isPending} onCleanup={(target) => cleanup.mutate(target)} />
     if (tab === "cleanupQueue") return <CleanupQueueSection mailbox={selectedMailbox} stats={canViewStats ? stats.data : undefined} />
-    if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending} />
+    if (tab === "rules") return <RulesSection items={rules.data?.items || []} mailboxes={mailboxes.data?.items || []} labels={labels.data?.items || []} verifiedEmails={ruleVerifiedEmails} open={ruleDialogOpen} onOpenChange={setRuleDialogOpen} onCreate={(payload) => createRule.mutate(payload)} onUpdate={(id, payload) => updateRule.mutate({ id, payload })} onToggle={(item) => updateRule.mutate({ id: item.id, payload: { enabled: !item.enabled } })} onMove={(id, direction) => moveRule.mutate({ id, direction })} onApply={(id) => applyRule.mutate(id)} onDelete={(id) => deleteRule.mutate(id)} pending={createRule.isPending || updateRule.isPending || moveRule.isPending || applyRule.isPending} />
     if (tab === "blocked") return <BlockedSection items={blocked.data?.items || []} mailboxes={mailboxes.data?.items || []} mailboxId={blockedMailboxId} spamCount={canViewStats ? stats.data?.byFolder.find((f) => f.role === "spam")?.count || 0 : 0} onMailboxChange={setBlockedMailboxId} onCreate={(form) => createBlocked.mutate(form)} onDelete={(id) => deleteBlocked.mutate(id)} pending={createBlocked.isPending} />
     if (tab === "stats") return <StatsSection stats={stats.data} mailbox={selectedMailbox} rangeDays={statsRangeDays} onRangeChange={setStatsRangeDays} onRefresh={() => stats.refetch()} />
     if (tab === "feedback") return <FeedbackSection />
@@ -462,12 +490,29 @@ export function ProfilePage() {
   }
 }
 
-function SettingsPageHeader({ title, activeTab, onAccountTabChange }: { title: string; activeTab?: AccountSettingsTab; onAccountTabChange: (tab: AccountSettingsTab) => void }) {
+function contentFrameClass(tab: Tab) {
+  return cn(
+    "w-full",
+    tab === "mailboxes" ? "pt-[34px]" : "pt-6",
+    tab === "profile" || tab === "mailboxes" ? "mx-auto max-w-[896px]" :
+      tab === "stats" ? "px-4 sm:px-6" :
+      tab === "rules" || tab === "apiTokens" ? "mx-auto max-w-[896px] px-4 sm:px-0" :
+      "mx-auto max-w-[1024px] px-4 sm:px-0",
+  )
+}
+
+function SettingsPageHeader({ title, subtitle, action, activeTab, onAccountTabChange }: { title: string; subtitle?: string; action?: React.ReactNode; activeTab?: AccountSettingsTab; onAccountTabChange: (tab: AccountSettingsTab) => void }) {
   return (
-    <div>
-      <h1 className="mb-3 text-[20px] font-semibold leading-7">{title}</h1>
+    <div className="border-b px-4 py-4 sm:px-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-[20px] font-semibold leading-7">{title}</h1>
+          {subtitle && <p className="text-sm leading-5 text-muted-foreground">{subtitle}</p>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
       {activeTab && (
-        <div className="flex overflow-x-auto border-b">
+        <div className="mt-3 flex overflow-x-auto border-b">
           {accountSettingTabs.map((item) => (
             <button
               key={item.key}
@@ -483,6 +528,28 @@ function SettingsPageHeader({ title, activeTab, onAccountTabChange }: { title: s
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function StatsRangeTabs({ rangeDays, onRangeChange }: { rangeDays: number; onRangeChange: (days: number) => void }) {
+  return (
+    <div className="grid grid-cols-4 gap-1 sm:flex">
+      {[
+        [7, "7天"],
+        [30, "30天"],
+        [90, "90天"],
+        [365, "365天"],
+      ].map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          className={cn("h-[30px] rounded-md border px-3 text-xs font-normal transition-colors", rangeDays === value ? "border-primary bg-primary text-primary-foreground" : "bg-background text-foreground hover:bg-muted")}
+          onClick={() => onRangeChange(Number(value))}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -602,12 +669,17 @@ function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenClea
           <InfoLine label="用户名" value={accountName} />
           <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
             <Label className="text-base font-normal text-muted-foreground">时区</Label>
-            <select className="h-[29px] rounded-md border border-input bg-background px-2 text-sm outline-none focus:ring-1 focus:ring-ring sm:ml-auto sm:w-[236px]" defaultValue="Asia/Shanghai">
-              <option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option>
-              <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
-              <option value="Asia/Singapore">Asia/Singapore (UTC+8)</option>
-              <option value="UTC">UTC (UTC+0)</option>
-            </select>
+            <Select defaultValue="Asia/Shanghai">
+              <SelectTrigger className="h-[29px] sm:ml-auto sm:w-[236px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Asia/Shanghai">Asia/Shanghai (UTC+8)</SelectItem>
+                <SelectItem value="Asia/Tokyo">Asia/Tokyo (UTC+9)</SelectItem>
+                <SelectItem value="Asia/Singapore">Asia/Singapore (UTC+8)</SelectItem>
+                <SelectItem value="UTC">UTC (UTC+0)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </SettingsCard>
@@ -754,7 +826,7 @@ function MailPreferencesSection({
       <SettingsCard title="标签管理">
         <form className="flex gap-2" onSubmit={submitLabel}>
           <Input name="name" className="h-[42px] flex-1 text-base" placeholder={selectedMailbox ? "标签名称" : "请先选择邮箱"} disabled={!selectedMailbox || labelsPending} required />
-          <input type="color" value={labelColor} onChange={(event) => setLabelColor(event.target.value)} className="h-10 w-12 cursor-pointer rounded-md border border-input bg-background p-1" aria-label="标签颜色" />
+          <Input type="color" value={labelColor} onChange={(event) => setLabelColor(event.target.value)} className="h-10 w-12 cursor-pointer bg-background p-1" aria-label="标签颜色" />
           <Button className="h-10 px-4" disabled={!selectedMailbox || labelsPending}>{labelsPending ? "创建中" : "创建"}</Button>
         </form>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -762,9 +834,9 @@ function MailPreferencesSection({
             <span key={label.id} className="inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm">
               <span className="size-3 rounded-full" style={{ backgroundColor: label.color || "#64748b" }} />
               {label.name}
-              <button type="button" className="text-muted-foreground hover:text-destructive" disabled={labelsPending} onClick={() => onDeleteLabel(label.id)} aria-label={`删除标签 ${label.name}`}>
+              <Button type="button" variant="ghost" size="icon" className="h-5 w-5 p-0 text-muted-foreground shadow-none hover:text-destructive" disabled={labelsPending} onClick={() => onDeleteLabel(label.id)} aria-label={`删除标签 ${label.name}`}>
                 <X className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             </span>
           ))}
           {!labelsLoading && labels.length === 0 && <span className="text-sm text-muted-foreground">暂无标签</span>}
@@ -1130,11 +1202,7 @@ function writeFeedbackTickets(items: FeedbackTicket[]) {
 }
 
 function SwitchButton({ checked, onClick }: { checked: boolean; onClick: () => void }) {
-  return (
-    <button type="button" className={cn("relative h-6 w-11 rounded-full transition-colors", checked ? "bg-primary" : "bg-muted-foreground/30")} onClick={onClick} aria-pressed={checked}>
-      <span className={cn("absolute top-0.5 size-5 rounded-full bg-background shadow transition-transform", checked ? "translate-x-5" : "translate-x-0.5")} />
-    </button>
-  )
+  return <Switch checked={checked} onCheckedChange={onClick} aria-label="切换设置" />
 }
 
 function readLocalString(key: string) {
@@ -2313,29 +2381,19 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-stretch sm:justify-end">
-        <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-          <a href="https://github.com/zxyszx/NewSzxcn-Email/blob/main/docs/API.md" target="_blank" rel="noreferrer">
-            <BookOpen className="h-4 w-4" />
-            API 文档
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </Button>
-      </div>
-
-      <SettingsCard
-        title="API 密钥"
-        subtitle="用于服务端集成调用 `/api/open`，创建后请立即保存。"
-        action={<Button type="button" size="sm" className="w-full shrink-0 sm:w-auto" onClick={openCreateDialog}><Plus className="h-4 w-4" />创建密钥</Button>}
-        contentClassName="space-y-3"
-      >
+    <div>
+      <section className="rounded-lg border bg-card">
+        <div className="flex min-h-16 items-center justify-between gap-3 px-4 py-3">
+          <h2 className="text-lg font-semibold leading-7">API 密钥</h2>
+          <Button type="button" size="sm" className="h-8 rounded-md px-3 text-xs" onClick={openCreateDialog}>创建密钥</Button>
+        </div>
+        <div className="space-y-2 border-t px-4 py-4">
         {createdToken && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
             <div className="flex items-center gap-2 text-sm font-semibold"><KeyRound className="h-4 w-4" />只显示一次</div>
             <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row">
               <code className="min-w-0 flex-1 overflow-x-auto rounded border bg-background px-3 py-2 text-xs">{createdToken}</code>
-              <Button type="button" variant="outline" onClick={() => onCopy(createdToken)}><Copy className="h-4 w-4" />复制</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => onCopy(createdToken)}><Copy className="h-4 w-4" />复制</Button>
             </div>
           </div>
         )}
@@ -2343,11 +2401,11 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
         {items.map((item) => {
           const expired = item.expiresAt ? new Date(item.expiresAt).getTime() <= Date.now() : false
           return (
-            <div key={item.id} className="grid gap-3 rounded-lg border bg-background p-4 transition-colors hover:bg-muted/40 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div key={item.id} className="grid min-h-[74px] gap-3 rounded-lg border bg-background px-3 py-3 transition-colors hover:bg-muted/30 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="truncate text-sm font-semibold">{item.name}</div>
-                  <Badge variant={item.disabled || expired ? "secondary" : "default"}>{item.disabled ? "已禁用" : expired ? "已过期" : "可用"}</Badge>
+                  <Badge variant={item.disabled || expired ? "secondary" : "default"} className="h-5 px-1.5 text-[10px]">{item.disabled ? "已禁用" : expired ? "已过期" : "可用"}</Badge>
                 </div>
                 <div className="mt-2 grid gap-1 text-xs leading-5 text-muted-foreground sm:grid-cols-3">
                   <span>创建：{formatDateTime(item.createdAt)}</span>
@@ -2355,20 +2413,21 @@ function ApiTokensSection({ items, loading, pending, onCreate, onUpdate, onDelet
                   <span>最后使用：{item.lastUsedAt ? formatDateTime(item.lastUsedAt) : "从未使用"}</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {(item.scopes || ["*"]).map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
+                  {(item.scopes || ["*"]).map((scope) => <Badge key={scope} variant="outline" className="h-5 px-1.5 text-[10px] font-normal">{scope}</Badge>)}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 lg:justify-end">
-                <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => { setEditingToken(item); setEditingScopes(item.scopes?.includes("*") ? ["messages:send", "messages:read"] : item.scopes || []) }}>编辑权限</Button>
-                <Button type="button" variant="outline" size="sm" disabled={pending || expired} onClick={() => onUpdate(item.id, { disabled: !item.disabled })}>{item.disabled ? "启用" : "禁用"}</Button>
-                <Button type="button" variant="destructive" size="sm" disabled={pending} onClick={() => setPendingConfirm({ title: "撤销 API 密钥？", description: `密钥“${item.name}”撤销后无法恢复，正在使用它的集成会立即失效。`, confirmText: "撤销密钥", destructive: true, onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}>撤销</Button>
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={pending} onClick={() => { setEditingToken(item); setEditingScopes(item.scopes?.includes("*") ? ["messages:send", "messages:read"] : item.scopes || []) }}>编辑权限</Button>
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={pending || expired} onClick={() => onUpdate(item.id, { disabled: !item.disabled })}>{item.disabled ? "启用" : "禁用"}</Button>
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive hover:text-destructive" disabled={pending} onClick={() => setPendingConfirm({ title: "撤销 API 密钥？", description: `密钥“${item.name}”撤销后无法恢复，正在使用它的集成会立即失效。`, confirmText: "撤销密钥", destructive: true, onConfirm: () => { onDelete(item.id); setPendingConfirm(null) } })}>撤销</Button>
               </div>
             </div>
           )
         })}
-        {!loading && items.length === 0 && <EmptyState icon={<KeyRound />} text="暂无 API 密钥" description="点击上方按钮创建" action={<Button type="button" variant="outline" size="sm" onClick={openCreateDialog}><Plus className="h-4 w-4" />创建密钥</Button>} />}
-        {loading && items.length === 0 && <EmptyState icon={<KeyRound />} text="正在加载 API 密钥" />}
-      </SettingsCard>
+        {!loading && items.length === 0 && <div className="grid min-h-[56px] place-items-center text-sm text-muted-foreground">暂无 API 密钥，点击上方按钮创建</div>}
+        {loading && items.length === 0 && <div className="grid min-h-[56px] place-items-center text-sm text-muted-foreground">正在加载 API 密钥</div>}
+        </div>
+      </section>
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
@@ -2610,22 +2669,29 @@ const conditionFields = Object.keys(conditionFieldLabels) as RuleConditionField[
 const commonRuleFolders = ["Inbox", "Archive", "Spam", "Trash"]
 const ruleActionLabels: Record<MailRuleAction["type"], string> = { archive: "移入归档", trash: "移入回收站", star: "添加星标", "mark-read": "标记已读", label: "添加标签", move: "移动到", forward: "邮件转发" }
 
-function RulesSection({ items, mailboxes, labels, open, onOpenChange, onCreate, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onDelete: (id: string) => void; pending: boolean }) {
+function RulesSection({ items, mailboxes, labels, verifiedEmails, open, onOpenChange, onCreate, onUpdate, onToggle, onMove, onApply, onDelete, pending }: { items: MailRule[]; mailboxes: Mailbox[]; labels: MailLabel[]; verifiedEmails: string[]; open: boolean; onOpenChange: (open: boolean) => void; onCreate: (payload: RuleCreatePayload) => void; onUpdate: (id: string, payload: RuleCreatePayload) => void; onToggle: (item: MailRule) => void; onMove: (id: string, direction: "up" | "down") => void; onApply: (id: string) => void; onDelete: (id: string) => void; pending: boolean }) {
+  const [editingRule, setEditingRule] = React.useState<MailRule | null>(null)
+
+  function setDialogOpen(next: boolean) {
+    if (!next) setEditingRule(null)
+    onOpenChange(next)
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex justify-stretch sm:justify-end">
-        <Button className="h-9 w-full px-4 sm:w-auto" onClick={() => onOpenChange(true)}><Plus className="h-4 w-4" />新建规则</Button>
+        <Button className="h-9 w-full rounded-md px-4 text-sm font-normal sm:w-auto" onClick={() => { setEditingRule(null); onOpenChange(true) }}>新建规则</Button>
       </div>
-      <div className="space-y-2">
-        {items.map((item) => <RuleListItem key={item.id} item={item} mailboxes={mailboxes} onDelete={onDelete} />)}
-        {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" className="border-solid bg-card" />}
+      <div className="space-y-3">
+        {items.map((item, index) => <RuleListItem key={item.id} item={item} index={index} count={items.length} pending={pending} onEdit={() => { setEditingRule(item); onOpenChange(true) }} onToggle={() => onToggle(item)} onMove={(direction) => onMove(item.id, direction)} onApply={() => onApply(item.id)} onDelete={onDelete} />)}
+        {items.length === 0 && <EmptyState icon={<SlidersHorizontal />} text="暂无收件规则" description="新建规则后，可自动标记、移动或转发符合条件的邮件。" className="min-h-[180px] border-solid bg-card" />}
       </div>
-      <RuleDialog open={open} onOpenChange={onOpenChange} mailboxes={mailboxes} labels={labels} pending={pending} onCreate={onCreate} />
+      <RuleDialog open={open} onOpenChange={setDialogOpen} mailboxes={mailboxes} labels={labels} verifiedEmails={verifiedEmails} pending={pending} initialRule={editingRule} onSave={(payload) => editingRule ? onUpdate(editingRule.id, payload) : onCreate(payload)} />
     </div>
   )
 }
 
-function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }: { open: boolean; onOpenChange: (open: boolean) => void; mailboxes: Mailbox[]; labels: MailLabel[]; pending: boolean; onCreate: (payload: RuleCreatePayload) => void }) {
+function RuleDialog({ open, onOpenChange, mailboxes, labels, verifiedEmails, pending, initialRule, onSave }: { open: boolean; onOpenChange: (open: boolean) => void; mailboxes: Mailbox[]; labels: MailLabel[]; verifiedEmails: string[]; pending: boolean; initialRule: MailRule | null; onSave: (payload: RuleCreatePayload) => void }) {
   const [name, setName] = React.useState("我的规则")
   const [mailboxId, setMailboxId] = React.useState("all")
   const [matchMode, setMatchMode] = React.useState<"all" | "any">("all")
@@ -2640,15 +2706,15 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
 
   React.useEffect(() => {
     if (!open) return
-    setName("我的规则")
-    setMailboxId("all")
-    setMatchMode("all")
-    setConditions([{ field: "to", operator: "contains", value: "" }])
-    setActions([{ type: "forward", value: "" }])
-    setEnabled(true)
-    setApplyToExisting(false)
-    setStopProcessing(false)
-  }, [open, labels])
+    setName(initialRule?.name || "我的规则")
+    setMailboxId(initialRule?.mailboxId || "all")
+    setMatchMode(initialRule?.matchMode || "all")
+    setConditions(initialRule?.conditions.length ? initialRule.conditions : [{ field: "to", operator: "contains", value: "" }])
+    setActions(initialRule?.actions.length ? initialRule.actions : [{ type: "forward", value: "" }])
+    setEnabled(initialRule?.enabled ?? true)
+    setApplyToExisting(initialRule?.applyToExisting ?? false)
+    setStopProcessing(initialRule?.stopProcessing ?? false)
+  }, [initialRule, open])
 
   function updateCondition(index: number, patch: Partial<MailRuleCondition>) {
     setConditions((items) => items.map((item, i) => {
@@ -2669,20 +2735,20 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
   function removeAction(index: number) { setActions((items) => items.length > 1 ? items.filter((_, i) => i !== index) : items) }
 
   const validConditions = conditions.map((item) => ({ ...item, value: (item.value || "").trim() })).filter((item) => item.field && item.operator && item.value)
-  const validActions = actions.map((item) => normalizeDraftAction(item, availableLabels)).filter((item) => item.type !== "label" || item.value || item.labelId).filter((item) => item.type !== "move" || item.value).filter((item) => item.type !== "forward" || item.value)
+  const validActions = actions.map((item) => normalizeDraftAction(item, availableLabels)).map((item) => item.type === "forward" ? { ...item, value: verifiedRuleForwardTargets(item.value || "", verifiedEmails).join(", ") } : item).filter((item) => item.type !== "label" || item.value || item.labelId).filter((item) => item.type !== "move" || item.value).filter((item) => item.type !== "forward" || item.value)
   const canCreate = validConditions.length > 0 && validActions.length > 0 && !pending
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canCreate) return
-    onCreate({ mailboxId: selectedMailboxId, name: name.trim() || "我的规则", matchMode, conditions: validConditions, actions: validActions, applyToExisting, stopProcessing, enabled })
+    onSave({ mailboxId: selectedMailboxId, name: name.trim() || "我的规则", matchMode, conditions: validConditions, actions: validActions, applyToExisting, stopProcessing, enabled })
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-svh w-screen max-w-none gap-0 overflow-hidden p-0 sm:h-auto sm:max-h-[92vh] sm:w-[min(94vw,56rem)]">
         <DialogHeader className="border-b px-4 py-4 text-left sm:px-8 sm:py-6">
-          <DialogTitle className="text-xl sm:text-2xl">新建规则</DialogTitle>
+          <DialogTitle className="text-xl sm:text-2xl">{initialRule ? "编辑规则" : "新建规则"}</DialogTitle>
         </DialogHeader>
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:space-y-7 sm:px-8 sm:py-7">
@@ -2725,7 +2791,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>{(Object.keys(ruleActionLabels) as MailRuleAction["type"][]).map((value) => <SelectItem key={value} value={value}>{ruleActionLabels[value]}</SelectItem>)}</SelectContent>
                     </Select>
-                    <RuleActionValue action={action} labels={availableLabels} onChange={(patch) => updateAction(index, patch)} />
+                    <RuleActionValue action={action} labels={availableLabels} verifiedEmails={verifiedEmails} onChange={(patch) => updateAction(index, patch)} />
                     <Button type="button" variant="ghost" size="icon" className="text-muted-foreground" onClick={() => removeAction(index)} disabled={actions.length === 1}><X className="h-4 w-4" /></Button>
                     {action.type !== "forward" && <Button type="button" variant="ghost" size="icon" onClick={addAction}><Plus className="h-4 w-4" /></Button>}
                   </div>
@@ -2746,7 +2812,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
           </div>
           <DialogFooter className="gap-2 border-t px-4 py-4 sm:px-8 sm:py-5 [&>button]:w-full sm:[&>button]:w-auto">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-            <Button disabled={!canCreate}>{pending ? "创建中..." : "创建"}</Button>
+            <Button disabled={!canCreate}>{pending ? "保存中..." : initialRule ? "保存修改" : "创建"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -2754,7 +2820,7 @@ function RuleDialog({ open, onOpenChange, mailboxes, labels, pending, onCreate }
   )
 }
 
-function RuleActionValue({ action, labels, onChange }: { action: MailRuleAction; labels: MailLabel[]; onChange: (patch: Partial<MailRuleAction>) => void }) {
+function RuleActionValue({ action, labels, verifiedEmails, onChange }: { action: MailRuleAction; labels: MailLabel[]; verifiedEmails: string[]; onChange: (patch: Partial<MailRuleAction>) => void }) {
   if (action.type === "label") {
     if (labels.length > 0) {
       return (
@@ -2785,69 +2851,19 @@ function RuleActionValue({ action, labels, onChange }: { action: MailRuleAction;
     )
   }
   if (action.type === "forward") {
-    return <RuleForwardTargets value={action.value || ""} onChange={(value) => onChange({ value })} />
+    return <RuleForwardTargets value={action.value || ""} emails={verifiedEmails} onChange={(value) => onChange({ value })} />
   }
   return <Input value="无需填写" readOnly />
 }
 
-function RuleForwardTargets({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const [rows, setRows] = React.useState(() => ruleForwardTargetRows(value))
-
-  React.useEffect(() => {
-    const next = ruleForwardTargetRows(value)
-    if (ruleForwardTargetsValue(next) !== ruleForwardTargetsValue(rows)) {
-      setRows(next)
-    }
-  }, [value])
-
-  function commit(next: string[]) {
-    const normalized = next.length > 0 ? next : [""]
-    setRows(normalized)
-    onChange(ruleForwardTargetsValue(normalized))
-  }
-
-  function updateRow(index: number, nextValue: string) {
-    const pasted = ruleForwardTargetRows(nextValue)
-    const next = [...rows]
-    if (pasted.length > 1) {
-      next.splice(index, 1, ...pasted)
-    } else {
-      next[index] = nextValue
-    }
-    commit(next)
-  }
-
-  function addRow(index: number) {
-    const next = [...rows]
-    next.splice(index + 1, 0, "")
-    commit(next)
-  }
-
-  function removeRow(index: number) {
-    const next = rows.filter((_, itemIndex) => itemIndex !== index)
-    commit(next.length > 0 ? next : [""])
-  }
-
-  return (
-    <div className="space-y-2">
-      {rows.map((email, index) => (
-        <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_40px_40px]">
-          <Input type="email" value={email} onChange={(event) => updateRow(index, event.target.value)} placeholder={`目标邮箱 ${index + 1}`} />
-          <Button type="button" variant="ghost" size="icon" className="size-10 text-muted-foreground" onClick={() => removeRow(index)} disabled={rows.length === 1 && !email.trim()} aria-label={`移除目标邮箱 ${index + 1}`}><X className="h-4 w-4" /></Button>
-          <Button type="button" variant="ghost" size="icon" className="size-10" onClick={() => addRow(index)} aria-label={`添加目标邮箱 ${index + 2}`}><Plus className="h-4 w-4" /></Button>
-        </div>
-      ))}
-    </div>
-  )
+function RuleForwardTargets({ value, emails, onChange }: { value: string; emails: string[]; onChange: (value: string) => void }) {
+  const selected = React.useMemo(() => verifiedRuleForwardTargets(value, emails), [emails, value])
+  return <ForwardingTargetPicker emails={emails} selected={selected} onChange={(targets) => onChange(targets.join(", "))} placement="top" />
 }
 
-function ruleForwardTargetRows(value: string) {
-  const rows = value.split(/[\n\r,，;；]+/).map((item) => item.trim()).filter(Boolean)
-  return rows.length > 0 ? rows : [""]
-}
-
-function ruleForwardTargetsValue(rows: string[]) {
-  return rows.map((item) => item.trim()).filter(Boolean).join(", ")
+function verifiedRuleForwardTargets(value: string, verifiedEmails: string[]) {
+  const verifiedByAddress = new Map(verifiedEmails.map((email) => [email.trim().toLowerCase(), email.trim()]))
+  return Array.from(new Set(value.split(/[\n\r,，;；]+/).map((item) => verifiedByAddress.get(item.trim().toLowerCase())).filter((item): item is string => !!item)))
 }
 
 function RuleCheckbox({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange: (checked: boolean) => void; label: string }) {
@@ -2855,25 +2871,32 @@ function RuleCheckbox({ checked, onCheckedChange, label }: { checked: boolean; o
   return <div className="flex items-center gap-3"><Checkbox id={id} checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} /><Label htmlFor={id} className="text-base font-medium">{label}</Label></div>
 }
 
-function RuleListItem({ item, mailboxes, onDelete }: { item: MailRule; mailboxes: Mailbox[]; onDelete: (id: string) => void }) {
-  const mailbox = item.mailboxId ? mailboxes.find((m) => m.id === item.mailboxId)?.address : "全部邮箱"
+function RuleListItem({ item, index, count, pending, onEdit, onToggle, onMove, onApply, onDelete }: { item: MailRule; index: number; count: number; pending: boolean; onEdit: () => void; onToggle: () => void; onMove: (direction: "up" | "down") => void; onApply: () => void; onDelete: (id: string) => void }) {
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const conditionText = ruleConditionSummary(item.conditions, item.fromContains, item.subjectContains)
   const actionText = item.actions.map(ruleActionSummary).filter(Boolean).join("；") || "无动作"
+  const moveDirection = index === 0 ? "down" : "up"
+  const canMove = count > 1
   return (
-    <div className="grid min-h-[82px] grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 rounded-lg border bg-card px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:bg-muted/30">
-      <div className="min-w-0 space-y-1.5">
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <span className="truncate font-semibold text-foreground">{item.name}</span>
-          <span className={cn("shrink-0 text-xs font-medium", item.enabled ? "text-emerald-600" : "text-muted-foreground")}>{item.enabled ? "已启用" : "已停用"}</span>
+    <div className="grid min-h-[110px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border bg-card px-4 py-4 transition-colors hover:bg-muted/20">
+      <div className="min-w-0 space-y-1">
+        <div className="flex min-w-0 items-center gap-2 leading-6">
+          <h3 className="truncate text-base font-semibold text-foreground">{item.name}</h3>
+          <span className={cn("shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium", item.enabled ? "text-emerald-700" : "bg-muted text-muted-foreground")}>{item.enabled ? "已启用" : "已停用"}</span>
         </div>
-        <div className="grid gap-0.5 text-xs leading-5 text-muted-foreground">
-          <p className="truncate"><span className="font-medium text-foreground/80">条件：</span>{conditionText}</p>
-          <p className="truncate"><span className="font-medium text-foreground/80">动作：</span>{actionText}</p>
+        <div className="grid text-sm leading-6 text-muted-foreground">
+          <p className="truncate"><span className="text-muted-foreground">条件：</span> {conditionText}</p>
+          <p className="truncate"><span className="text-muted-foreground">动作：</span> {actionText}</p>
         </div>
-        <div className="truncate text-xs text-muted-foreground/80">{mailbox} · {item.matchMode === "any" ? "任一条件" : "所有条件"}</div>
       </div>
-      <Button variant="ghost" size="icon" className="size-8 shrink-0 text-destructive" onClick={() => setConfirmOpen(true)}><Trash2 className="h-4 w-4" /></Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending || !canMove} onClick={() => onMove(moveDirection)} aria-label={moveDirection === "up" ? "上移" : "下移"} title={moveDirection === "up" ? "上移" : "下移"}>{moveDirection === "up" ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</Button>
+        <span className="mx-1 h-6 w-px bg-border" />
+        <Button type="button" variant="ghost" size="icon" className={cn("size-7", item.enabled ? "text-emerald-600" : "text-muted-foreground")} disabled={pending} onClick={onToggle} aria-label={item.enabled ? "禁用规则" : "启用规则"} title={item.enabled ? "禁用规则" : "启用规则"}>{item.enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}</Button>
+        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending} onClick={onEdit} aria-label="编辑规则" title="编辑规则"><PencilLine className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="icon" className="size-7 text-muted-foreground" disabled={pending} onClick={onApply} aria-label="应用到现有邮件" title="应用到现有邮件"><PlayCircle className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="icon" className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={pending} onClick={() => setConfirmOpen(true)} aria-label="删除规则" title="删除规则"><Trash2 className="h-4 w-4" /></Button>
+      </div>
       <ConfirmDialog open={confirmOpen} title="删除收件规则？" description={`规则“${item.name}”将不再处理后续邮件。`} confirmText="删除规则" destructive onOpenChange={setConfirmOpen} onConfirm={() => { onDelete(item.id); setConfirmOpen(false) }} />
     </div>
   )
@@ -2928,7 +2951,7 @@ function ruleConditionItemSummary(item: MailRuleCondition): string {
 
 function ruleActionSummary(action: MailRuleAction) {
   if (action.type === "label") return `${ruleActionLabels[action.type]}${action.value ? `："${action.value}"` : ""}`
-  if (action.type === "move") return `${ruleActionLabels[action.type]}："${folderLabel(action.value || "Archive")}"`
+  if (action.type === "move") return `${ruleActionLabels[action.type]}"${folderLabel(action.value || "Archive")}"`
   if (action.type === "forward") return `${ruleActionLabels[action.type]}${action.value ? `：${action.value}` : ""}`
   return ruleActionLabels[action.type]
 }
@@ -2979,14 +3002,14 @@ function BlockedSection({ items, mailboxes, mailboxId, spamCount, onMailboxChang
   )
 }
 
-function StatsSection({ stats, mailbox, rangeDays, onRangeChange, onRefresh }: { stats?: MailStats; mailbox?: Mailbox; rangeDays: number; onRangeChange: (days: number) => void; onRefresh: () => void }) {
+function StatsSection({ stats }: { stats?: MailStats; mailbox?: Mailbox; rangeDays: number; onRangeChange: (days: number) => void; onRefresh: () => void }) {
   const quotaLabel = stats?.quotaBytes ? `${formatBytes(stats.storageBytes || 0)} / ${formatBytes(stats.quotaBytes)}` : formatBytes(stats?.storageBytes || 0)
   const quotaPct = Math.min(stats?.quotaUsedPct || 0, 100)
   const primaryCards = [
-    { label: "总收件", value: stats?.totalIncoming || 0, icon: <Mail className="h-4 w-4" />, tone: "bg-blue-50 text-blue-600" },
+    { label: "总收件", value: stats?.totalIncoming || 0, icon: <Mail className="h-4 w-4" />, tone: "bg-muted text-foreground" },
     { label: "总发件", value: stats?.totalOutgoing || 0, icon: <SendHorizontal className="h-4 w-4" />, tone: "bg-emerald-50 text-emerald-600" },
     { label: "未读邮件", value: stats?.unreadMessages || 0, icon: <MailCheck className="h-4 w-4" />, tone: "bg-amber-50 text-amber-600" },
-    { label: "存储用量", value: quotaLabel, detail: stats?.quotaBytes ? `${quotaPct.toFixed(0)}%` : "不限", icon: <HardDrive className="h-4 w-4" />, tone: "bg-slate-100 text-slate-700" },
+    { label: "存储用量", value: formatBytes(stats?.storageBytes || 0), subvalue: stats?.quotaBytes ? `/ ${formatBytes(stats.quotaBytes)} (${quotaPct.toFixed(0)}%)` : "不限", icon: <HardDrive className="h-4 w-4" />, tone: "bg-violet-50 text-violet-600" },
   ]
   const secondaryStats = [
     { label: "今日发件", value: stats?.todayOutgoing || 0 },
@@ -2995,68 +3018,40 @@ function StatsSection({ stats, mailbox, rangeDays, onRangeChange, onRefresh }: {
     { label: "平均邮件大小", value: formatBytes(stats?.averageMessageBytes || 0) },
   ]
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-sm leading-6 text-muted-foreground">查看邮件收发趋势、分布情况和常用联系人。</p>
-          {mailbox && <p className="mt-0.5 truncate text-xs text-muted-foreground/80">{mailbox.address}</p>}
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <div className="grid grid-cols-4 rounded-md border bg-background p-0.5 sm:flex">
-            {[
-              [7, "7天"],
-              [30, "30天"],
-              [90, "90天"],
-              [365, "365天"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={cn("h-7 rounded px-2.5 text-xs font-medium transition-colors", rangeDays === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
-                onClick={() => onRangeChange(Number(value))}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={onRefresh}><RefreshCcw className="h-4 w-4" />刷新</Button>
-        </div>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {primaryCards.map((card) => (
-          <div key={card.label} className="grid h-[66px] grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card px-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
+          <div key={card.label} className="grid h-[106px] grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card px-5">
+            <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", card.tone)}>{card.icon}</div>
             <div className="min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <div className="truncate text-xs font-medium text-muted-foreground">{card.label}</div>
-                {card.detail && <Badge variant="secondary" className="rounded-md font-normal">{card.detail}</Badge>}
-              </div>
-              <div className="mt-0.5 truncate text-lg font-semibold leading-6 text-foreground">{card.value}</div>
+              <div className="truncate text-sm text-muted-foreground">{card.label}</div>
+              <div className="truncate text-2xl font-semibold leading-8 text-foreground">{card.value}</div>
+              {"subvalue" in card && <div className="truncate text-xs leading-4 text-muted-foreground">{card.subvalue}</div>}
             </div>
           </div>
         ))}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {secondaryStats.map((item) => (
-          <div key={item.label} className="flex h-8 items-center justify-between gap-3 rounded-lg border bg-background px-3 text-sm">
-            <div className="truncate text-xs font-medium text-muted-foreground">{item.label}</div>
+          <div key={item.label} className="flex h-[54px] items-center justify-between gap-3 rounded-lg border bg-background px-4 text-sm">
+            <div className="truncate text-sm text-muted-foreground">{item.label}</div>
             <div className="shrink-0 font-semibold text-foreground">{item.value}</div>
           </div>
         ))}
       </div>
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_272px]">
-        <StatsPanel title="收发趋势">
+      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+        <StatsPanel title="收发趋势" className="h-[321px]">
           <StatsTrendChart points={stats?.trend || []} />
         </StatsPanel>
-        <StatsPanel title="邮件分布">
+        <StatsPanel title="邮件分布" className="h-[321px]">
           <StatsDistribution items={stats?.distribution || []} />
         </StatsPanel>
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        <StatsPanel title="存储用量">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <StatsPanel title="存储用量" className="h-[338px]">
           <StatsStorage quotaLabel={quotaLabel} quotaPct={quotaPct} hasQuota={!!stats?.quotaBytes} />
         </StatsPanel>
-        <StatsPanel title="常用联系人">
+        <StatsPanel title="常用联系人" className="h-[338px]">
           <StatsContacts contacts={stats?.topContacts || []} />
         </StatsPanel>
       </div>
@@ -3064,13 +3059,13 @@ function StatsSection({ stats, mailbox, rangeDays, onRangeChange, onRefresh }: {
   )
 }
 
-function StatsPanel({ title, children }: { title: string; children: React.ReactNode }) {
+function StatsPanel({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <section className="rounded-lg border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="px-4 pb-1.5 pt-2.5">
-        <h2 className="text-[13px] font-semibold leading-5 text-foreground">{title}</h2>
+    <section className={cn("overflow-hidden rounded-lg border bg-card", className)}>
+      <div className="px-5 pb-2 pt-4">
+        <h2 className="text-base font-semibold leading-6 text-foreground">{title}</h2>
       </div>
-      <div className="px-4 pb-2.5">{children}</div>
+      <div className="px-5 pb-5">{children}</div>
     </section>
   )
 }
@@ -3088,21 +3083,21 @@ function StatsTrendChart({ points }: { points: MailStats["trend"] }) {
   const pathFor = (key: "incoming" | "outgoing") => data.map((item, index) => `${index === 0 ? "M" : "L"} ${xFor(index).toFixed(1)} ${yFor(item[key]).toFixed(1)}`).join(" ")
   const ticks = trendTicks(data)
   return (
-    <div className="h-[150px] rounded-md bg-background">
+    <div className="h-[250px] rounded-md bg-background">
       <div className="flex items-center justify-end gap-4 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-blue-500" />收件</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-foreground" />收件</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" />发件</span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[134px] w-full overflow-visible" role="img" aria-label="邮件收发趋势">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[226px] w-full overflow-visible" role="img" aria-label="邮件收发趋势">
         {[0, 0.25, 0.5, 0.75, 1].map((step) => {
           const y = padding.top + plotHeight * step
           return <line key={step} x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="stroke-border" strokeDasharray={step === 1 ? undefined : "3 5"} />
         })}
-        <path d={pathFor("incoming")} fill="none" className="stroke-blue-500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={pathFor("incoming")} fill="none" className="stroke-foreground" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         <path d={pathFor("outgoing")} fill="none" className="stroke-emerald-500" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         {data.map((item, index) => (
           <g key={`${item.date}-${index}`}>
-            <circle cx={xFor(index)} cy={yFor(item.incoming)} r="2.8" className="fill-blue-500" />
+            <circle cx={xFor(index)} cy={yFor(item.incoming)} r="2.8" className="fill-foreground" />
             <circle cx={xFor(index)} cy={yFor(item.outgoing)} r="2.8" className="fill-emerald-500" />
           </g>
         ))}
@@ -3147,7 +3142,7 @@ function StatsDistribution({ items }: { items: MailStats["distribution"] }) {
   ]
   const maxCount = Math.max(...rows.map((row) => row.count), 1)
   return (
-    <div className="space-y-2 py-1">
+    <div className="space-y-3 py-3">
       {rows.map((row) => (
         <div key={row.key} className="grid grid-cols-[4.5rem_minmax(0,1fr)_2rem] items-center gap-2 text-xs">
           <div className="truncate font-medium text-muted-foreground">{row.label}</div>
@@ -3172,7 +3167,7 @@ function distributionBarTone(key: string) {
 
 function StatsStorage({ quotaLabel, quotaPct, hasQuota }: { quotaLabel: string; quotaPct: number; hasQuota: boolean }) {
   return (
-    <div className="h-[136px] pt-2">
+    <div className="h-[260px] pt-3">
       <div className="mb-2 flex items-end justify-between gap-3">
         <div className="text-sm font-semibold text-foreground">{quotaLabel}</div>
         <div className="text-xs font-semibold text-foreground">{hasQuota ? `${quotaPct.toFixed(0)}%` : "不限"}</div>
@@ -3186,11 +3181,11 @@ function StatsStorage({ quotaLabel, quotaPct, hasQuota }: { quotaLabel: string; 
 }
 
 function StatsContacts({ contacts }: { contacts: MailStats["topContacts"] }) {
-  if (contacts.length === 0) return <EmptyState icon={<Users />} text="暂无常用联系人" description="有邮件往来后会显示联系人排行" className="h-[136px] min-h-0 py-4" />
+  if (contacts.length === 0) return <EmptyState icon={<Users />} text="暂无常用联系人" description="有邮件往来后会显示联系人排行" className="h-[260px] min-h-0 py-4" />
   return (
-    <div className="h-[136px] space-y-1 overflow-hidden pt-1">
-      {contacts.slice(0, 7).map((item, index) => (
-        <div key={item.email} className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem] items-center gap-2 text-xs leading-5">
+    <div className="h-[260px] space-y-1 overflow-hidden pt-1">
+      {contacts.slice(0, 10).map((item, index) => (
+        <div key={item.email} className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem] items-center gap-2 text-sm leading-6">
           <div className="text-center font-semibold text-muted-foreground">{index + 1}</div>
           <div className="min-w-0 truncate font-medium text-foreground">{item.email}</div>
           <div className="text-right font-semibold text-muted-foreground">{item.count} 封</div>

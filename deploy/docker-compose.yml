@@ -1,7 +1,10 @@
 services:
   lanqin-email:
-    image: ${LANQIN_IMAGE:-ghcr.io/lanqin996/lanqin-email:latest}
+    image: ${LANQIN_IMAGE:-ghcr.io/zxyszx/newszxcn-email:latest}
     env_file: .env
+    environment:
+      LANQIN_UPDATE_SERVICE_URL: http://updater:8080/v1/update
+      LANQIN_UPDATE_SERVICE_TOKEN: ${LANQIN_UPDATE_TOKEN:-}
     ports:
       - "80:80"
       - "443:443"
@@ -16,4 +19,20 @@ services:
       - ./dkim:/var/lib/rspamd/dkim
       # 生产环境如需第三方客户端校验证书，请取消下面挂载，并在 .env 配置：
       # - /etc/letsencrypt:/etc/letsencrypt:ro
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "newszxcn-email"
+    restart: unless-stopped
+
+  updater:
+    image: nickfedor/watchtower:1.20.2
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: ${LANQIN_UPDATE_TOKEN:?请在 .env 设置 LANQIN_UPDATE_TOKEN}
+    command:
+      - --http-api-update
+      - --label-enable
+      - --scope
+      - newszxcn-email
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

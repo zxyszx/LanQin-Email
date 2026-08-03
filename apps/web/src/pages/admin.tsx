@@ -2,7 +2,7 @@ import * as React from "react"
 import DOMPurify from "dompurify"
 import { useSearchParams } from "react-router-dom"
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Copy, ExternalLink, GitBranch, Github, Globe2, Mail, Mailbox, MoreHorizontal, Plus, RefreshCcw, Scale, Search, ShieldCheck, Star, Trash2, Users } from "lucide-react"
+import { ArrowRight, BookOpen, CheckCircle2, ChevronDown, Circle, ClipboardList, Copy, ExternalLink, Github, Globe2, Mail, Mailbox, MoreHorizontal, Plus, RefreshCcw, Scale, Search, ShieldCheck, Star, Trash2, Users } from "lucide-react"
 import { api, AdminUser, Alias, DNSRecord, Domain, Mailbox as MailboxType, MailMessage, MailTemplate, MaildirSyncHealth, PermissionGroup, PermissionInfo, PermissionLimits, SystemSettings } from "@/lib/api"
 import { cn, decodeMimeHeader, formatBytes, formatDate } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { SystemVersionDialog } from "@/components/system-version-dialog"
 import { useMe } from "@/hooks/use-me"
 import { useToast } from "@/hooks/use-toast"
 import { hasAnyPermission, hasPermission } from "@/lib/permissions"
@@ -54,13 +55,13 @@ const sectionPermissions: Record<Section, PermissionKey[]> = {
 }
 const projectRepositoryUrl = "https://github.com/zxyszx/NewSzxcn-Email"
 const projectTelegramUrl = "https://t.me/+EhII7MSyi3QwNDQ5"
-const projectTag = import.meta.env.VITE_APP_VERSION || ""
-const projectReleaseUrl = import.meta.env.VITE_RELEASE_URL || (projectTag ? `${projectRepositoryUrl}/releases/tag/${projectTag}` : "")
 const defaultPermissionLimits: PermissionLimits = { maxAttachmentMb: 25, maxMailboxCount: 9, smtpDailyLimit: 200, smtpMinuteLimit: 20, imapMinuteLimit: 200, pop3MinuteLimit: 150 }
 const defaultMailboxLimitOverride = 9
 const accountLoginName = (user: Pick<AdminUser, "email" | "loginName">) => user.loginName || user.email
 
 export function AdminPage() {
+  const qc = useQueryClient()
+  const { toast } = useToast()
   const me = useMe()
   const user = me.data?.user
   const canOverview = hasPermission(user, "admin.overview.view")
@@ -81,6 +82,7 @@ export function AdminPage() {
   const aliases = useQuery({ queryKey: ["admin", "aliases"], queryFn: api.aliases, enabled: !!user && canAliasesView })
   const settings = useQuery({ queryKey: ["admin", "settings"], queryFn: api.systemSettings, enabled: !!user && canSettingsView })
   const [params, setParams] = useSearchParams()
+  const [refreshing, setRefreshing] = React.useState(false)
 
   const domainItems = domains.data?.items || []
   const mailboxItems = mailboxes.data?.items || []
@@ -91,10 +93,27 @@ export function AdminPage() {
   const rawSection = params.get("section") as Section | null
   const section: Section = rawSection && visibleSections.includes(rawSection) ? rawSection : visibleSections[0] || "overview"
 
+  async function refreshAdminPage() {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["admin"] }),
+        qc.invalidateQueries({ queryKey: ["mailboxes"] }),
+        qc.invalidateQueries({ queryKey: ["me"] }),
+      ])
+      toast({ title: "后台数据已刷新" })
+    } catch (error) {
+      toast({ title: "刷新失败", description: error instanceof Error ? error.message : "请稍后重试" })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <ScrollArea className="h-[calc(100svh-3rem)] md:h-svh">
       <main className="mx-auto w-full max-w-[1180px] px-3 pb-10 pt-3 sm:px-4 sm:pt-4">
-        <AdminPageHeader section={section} />
+        <AdminPageHeader section={section} refreshing={refreshing} onRefresh={refreshAdminPage} />
 
         {section === "overview" && canOverview && (
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -111,7 +130,7 @@ export function AdminPage() {
         {section === "domains" && <DomainsSection domains={domainItems} />}
         {section === "mailboxes" && <MailboxesSection mailboxes={mailboxItems} users={userItems} domains={domainItems} />}
         {section === "aliases" && <AliasesSection aliases={aliasItems} domains={domainItems} />}
-        {section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} />}
+        {section === "messages" && <AdminMessagesSection mailboxes={mailboxItems} systemAdmin={user?.role === "admin"} />}
         {section === "sendAudit" && <AdminSendAuditSection mailboxes={mailboxItems} />}
         {section === "settings" && <SystemSettingsSection settings={settings.data} domains={domainItems} />}
       </main>
@@ -119,7 +138,7 @@ export function AdminPage() {
   )
 }
 
-function AdminPageHeader({ section }: { section: Section }) {
+function AdminPageHeader({ section, refreshing, onRefresh }: { section: Section; refreshing: boolean; onRefresh: () => void }) {
   const meta = sectionMeta[section]
   return (
     <div className="mb-4 border-b pb-3">
@@ -133,7 +152,12 @@ function AdminPageHeader({ section }: { section: Section }) {
           <h1 className="text-[20px] font-semibold leading-7 tracking-tight">{meta.label}</h1>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">{meta.description}</p>
         </div>
-        <Badge variant="outline" className="h-7 rounded-md px-2.5 font-normal">NewSzxcn</Badge>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="icon" className="h-8 w-8 shadow-none" onClick={onRefresh} disabled={refreshing} aria-label="刷新后台数据" title="刷新后台数据">
+            <RefreshCcw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+          </Button>
+          <Badge variant="outline" className="h-7 rounded-md px-2.5 font-normal">NewSzxcn</Badge>
+        </div>
       </div>
     </div>
   )
@@ -756,8 +780,7 @@ function AliasesSection({ aliases, domains }: { aliases: Alias[]; domains: Domai
   )
 }
 
-function AdminMessagesSection({ mailboxes }: { mailboxes: MailboxType[] }) {
-  const qc = useQueryClient()
+function AdminMessagesSection({ mailboxes, systemAdmin }: { mailboxes: MailboxType[]; systemAdmin: boolean }) {
   const [query, setQuery] = React.useState("")
   const [mailboxId, setMailboxId] = React.useState("all")
   const [folder, setFolder] = React.useState("all")
@@ -780,8 +803,8 @@ function AdminMessagesSection({ mailboxes }: { mailboxes: MailboxType[] }) {
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle>全部邮件</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["admin", "messages"] })}>
-            <RefreshCcw className="h-4 w-4" />刷新
+          <Button variant="outline" size="sm" onClick={() => messages.refetch()} disabled={messages.isFetching}>
+            <RefreshCcw className={cn("h-4 w-4", messages.isFetching && "animate-spin")} />{messages.isFetching ? "刷新中" : "刷新"}
           </Button>
         </div>
       </CardHeader>
@@ -795,7 +818,7 @@ function AdminMessagesSection({ mailboxes }: { mailboxes: MailboxType[] }) {
             <SelectTrigger className="xl:w-72"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部邮箱</SelectItem>
-              <SelectItem value="unregistered">未注册收件</SelectItem>
+              {systemAdmin && <SelectItem value="unregistered">未知收件</SelectItem>}
               {mailboxes.map((mailbox) => <SelectItem key={mailbox.id} value={mailbox.id}>{mailbox.address}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -808,7 +831,7 @@ function AdminMessagesSection({ mailboxes }: { mailboxes: MailboxType[] }) {
               <SelectItem value="Archive">归档</SelectItem>
               <SelectItem value="Spam">垃圾邮件</SelectItem>
               <SelectItem value="Trash">回收站</SelectItem>
-              <SelectItem value="Unregistered">未注册收件</SelectItem>
+              {systemAdmin && <SelectItem value="Unregistered">未知收件</SelectItem>}
             </SelectContent>
           </Select>
         </div>
@@ -884,7 +907,6 @@ function AdminMessagesSection({ mailboxes }: { mailboxes: MailboxType[] }) {
 }
 
 function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
-  const qc = useQueryClient()
   const [mailboxId, setMailboxId] = React.useState("all")
   const [event, setEvent] = React.useState("all")
   const [messageId, setMessageId] = React.useState("")
@@ -909,8 +931,8 @@ function AdminSendAuditSection({ mailboxes }: { mailboxes: MailboxType[] }) {
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" />发送队列</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["admin", "send-audit"] })}>
-            <RefreshCcw className="h-4 w-4" />刷新
+          <Button variant="outline" size="sm" onClick={() => audit.refetch()} disabled={audit.isFetching}>
+            <RefreshCcw className={cn("h-4 w-4", audit.isFetching && "animate-spin")} />{audit.isFetching ? "刷新中" : "刷新"}
           </Button>
         </div>
       </CardHeader>
@@ -1391,47 +1413,7 @@ function queryErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "读取 Maildir 同步健康失败"
 }
 
-function parseSemver(tag: string): number[] {
-  return (tag.startsWith("v") ? tag.slice(1) : tag).split(".").map(Number)
-}
-
 function AboutProjectCard() {
-  const { toast } = useToast()
-  const latestRelease = useQuery({
-    queryKey: ["github", "latest-release"],
-    queryFn: async () => {
-      const res = await fetch("https://api.github.com/repos/zxyszx/NewSzxcn-Email/releases/latest")
-      if (!res.ok) throw new Error("rate limited or unavailable")
-      return res.json() as Promise<{ tag_name: string; html_url: string }>
-    },
-    enabled: !!projectTag,
-    staleTime: 1000 * 60 * 60, // 1 hour
-    retry: 1,
-  })
-  const updateAvailable = React.useMemo(() => {
-    if (!projectTag || !latestRelease.data) return false
-    const current = parseSemver(projectTag)
-    const latest = parseSemver(latestRelease.data.tag_name)
-    for (let i = 0; i < Math.max(current.length, latest.length); i++) {
-      const a = current[i] ?? 0
-      const b = latest[i] ?? 0
-      if (b > a) return true
-      if (a > b) return false
-    }
-    return false
-  }, [projectTag, latestRelease.data])
-
-  React.useEffect(() => {
-    if (updateAvailable && latestRelease.data) {
-      toast({
-        title: "发现新版本",
-        description: `${latestRelease.data.tag_name} 已可用，点击版本号查看详情。`,
-      })
-    }
-    // Only toast once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateAvailable])
-
   return (
     <Card>
       <CardHeader>
@@ -1439,32 +1421,7 @@ function AboutProjectCard() {
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <AboutRow label="版本">
-          {projectTag ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" asChild>
-                <a href={projectReleaseUrl} target="_blank" rel="noreferrer">
-                  <GitBranch className="h-5 w-5 text-primary" />
-                  {projectTag}
-                </a>
-              </Button>
-              {updateAvailable && latestRelease.data && (
-                <Button type="button" variant="default" className="h-11 px-4 text-base font-normal" asChild>
-                  <a href={latestRelease.data.html_url} target="_blank" rel="noreferrer">
-                    <ExternalLink className="h-5 w-5" />
-                    新版本 {latestRelease.data.tag_name}
-                  </a>
-                </Button>
-              )}
-              {latestRelease.isLoading && (
-                <span className="text-xs text-muted-foreground">检查更新中...</span>
-              )}
-            </div>
-          ) : (
-            <Button type="button" variant="outline" className="h-11 justify-start px-4 text-base font-normal" disabled>
-              <GitBranch className="h-5 w-5 text-muted-foreground" />
-              未发布版本
-            </Button>
-          )}
+          <SystemVersionDialog mode="inline" />
         </AboutRow>
         <AboutRow label="交流">
           <div className="flex flex-wrap gap-3">

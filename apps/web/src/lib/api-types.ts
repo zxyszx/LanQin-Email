@@ -183,6 +183,25 @@ export type MaildirSyncHealth = {
   recentErrors: string[]
   summary: MaildirSyncCounts
 }
+export type SystemVersion = {
+  currentVersion: string
+  currentCommit?: string
+  buildDate?: string
+  latestVersion?: string
+  latestName?: string
+  releaseUrl?: string
+  releaseNotes?: string
+  publishedAt?: string
+  updateAvailable: boolean
+  updateEnabled: boolean
+  checkError?: string
+}
+export type SystemUpdateResult = {
+  ok: boolean
+  currentVersion: string
+  targetVersion: string
+  message: string
+}
 export type SystemSettings = {
   publicHostname: string
   publicBaseUrl: string
