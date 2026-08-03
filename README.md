@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/zxyszx/NewSzxcn-Email/main/install.
 脚本会自动完成：
 
 - 安装或检查 Docker Engine 与 Docker Compose v2
-- 询问邮件域名、访问地址、管理员邮箱和密码
+- 询问邮件域名、访问地址、管理员用户名和密码
 - 创建 `/opt/newszxcn-email` 持久化目录
 - 拉取 GHCR 镜像并启动邮件服务
 - 生成后台在线更新所需的内部鉴权令牌

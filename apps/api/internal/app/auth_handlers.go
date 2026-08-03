@@ -50,7 +50,13 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnauthorized, "人机验证失败，请重试")
 		return
 	}
-	loginName, err := cleanLoginName(req.LoginName, req.Email)
+	var loginName string
+	var err error
+	if strings.TrimSpace(req.LoginName) != "" {
+		loginName, err = cleanUsername(req.LoginName)
+	} else {
+		loginName, err = cleanLoginName(req.Email)
+	}
 	if err != nil {
 		respondError(w, http.StatusUnauthorized, "账号或密码错误")
 		return

@@ -108,7 +108,13 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor := currentUser(r)
-	loginName, err := cleanLoginName(req.LoginName, req.Email)
+	var loginName string
+	var err error
+	if strings.TrimSpace(req.LoginName) != "" {
+		loginName, err = cleanUsername(req.LoginName)
+	} else {
+		loginName, err = cleanLoginName(req.Email)
+	}
 	if err != nil {
 		badRequest(w, err)
 		return
@@ -183,6 +189,7 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	current := currentUser(r)
 	var req struct {
+		LoginName            string    `json:"loginName"`
 		DisplayName          string    `json:"displayName"`
 		Role                 string    `json:"role"`
 		Disabled             *bool     `json:"disabled"`
@@ -210,6 +217,15 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusNotFound, "user not found")
 		return
+	}
+	requestedLoginName := strings.TrimSpace(req.LoginName)
+	loginName := existing.LoginName
+	if requestedLoginName != "" {
+		loginName, err = cleanUsername(requestedLoginName)
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
 	}
 	if current == nil || (current.Role != "admin" && (existing.Role == "admin" || role == "admin")) {
 		respondError(w, http.StatusForbidden, "only administrators can modify administrator users")
@@ -278,8 +294,16 @@ func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET display_name=?, role=?, disabled=?, mailbox_limit_override=?, updated_at=? WHERE id=?`,
-		displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	emailIdentity := existing.Email
+	if normalizeLoginName(existing.Email) == normalizeLoginName(existing.LoginName) {
+		emailIdentity = loginName
+	}
+	if _, err := tx.ExecContext(r.Context(), `UPDATE users SET login_name=?, email=?, display_name=?, role=?, disabled=?, mailbox_limit_override=?, updated_at=? WHERE id=?`,
+		loginName, emailIdentity, displayName, role, boolInt(disabled), nullableInt(mailboxLimitOverride), a.now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			badRequest(w, errors.New("登录名已被使用"))
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "failed to update user")
 		return
 	}

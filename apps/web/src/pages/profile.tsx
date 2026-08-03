@@ -340,7 +340,7 @@ export function ProfilePage() {
   const sidebarContent = (
     <div className="flex h-full w-[256px] shrink-0 flex-col border-r border-border bg-card">
       <div className="h-[64px] border-b">
-        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
+        <AccountHeader name={user.displayName || selectedMailbox?.address || "NewSzxcn"} email={user.loginName || user.email || selectedMailbox?.address} darkMode={darkMode} onToggleTheme={() => setDarkMode((v) => !v)} onBack={() => navigate("/")} />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-2 pt-2 text-xs font-semibold text-muted-foreground">管理</div>
@@ -556,7 +556,7 @@ function StatsRangeTabs({ rangeDays, onRangeChange }: { rangeDays: number; onRan
 
 type AccountSettingsSectionProps = {
   activeTab: AccountSettingsTab
-  user: { id: string; email: string; displayName: string; role: string; disabled: boolean; twoFactorEnabled: boolean; createdAt: string; limits?: PermissionLimits }
+  user: { id: string; loginName?: string; email: string; displayName: string; role: string; disabled: boolean; twoFactorEnabled: boolean; createdAt: string; limits?: PermissionLimits }
   profile: { mutate: (form: FormData) => void; isPending: boolean }
   password: { mutate: (form: FormData) => void; isPending: boolean }
   passwordFormRef: React.RefObject<HTMLFormElement>
@@ -658,7 +658,7 @@ function SettingsCard({ title, subtitle, action, children, className, contentCla
 }
 
 function AccountTabSection({ user, stats, selectedMailbox, mailboxes, onOpenCleanup }: { user: AccountSettingsSectionProps["user"]; profile: AccountSettingsSectionProps["profile"]; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; selectedMailbox?: Mailbox; mailboxes: Mailbox[]; onOpenCleanup: () => void }) {
-  const accountName = cleanAccountName(user.displayName || user.email, user.email)
+  const accountName = user.loginName || user.email
   const quotaBytes = stats?.quotaBytes || (selectedMailbox?.quotaMb ? selectedMailbox.quotaMb * 1024 * 1024 : 0)
   const storageBytes = stats?.storageBytes || 0
   const quotaPct = quotaBytes > 0 ? Math.min(100, Math.round((storageBytes / quotaBytes) * 100)) : 0
@@ -973,7 +973,7 @@ function SecuritySettingsSection({ user, password, passwordFormRef, twoFactorFor
         <div className="flex items-center gap-4">
           <div className="flex size-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><ShieldCheck className="h-5 w-5" /></div>
           <div>
-            <div className="font-semibold">{user.email}</div>
+            <div className="font-semibold">{user.loginName || user.email}</div>
             <div className="text-sm text-muted-foreground">上次登录：刚刚</div>
           </div>
         </div>
@@ -1258,7 +1258,7 @@ function writeLocalLogs(key: string, value: MailboxActionLog[]) {
   try { window.localStorage.setItem(key, JSON.stringify(value.slice(0, 50))) } catch {}
 }
 
-function ProfileOverview({ user, profile, password, passwordFormRef, stats, showStats, displayMode, onDisplayModeChange, twoFactorFormRef, setupTwoFactor, enableTwoFactor, disableTwoFactor, onCopy }: { user: { email: string; displayName: string; role: string; disabled: boolean; twoFactorEnabled: boolean; createdAt: string; limits?: PermissionLimits }; profile: { mutate: (form: FormData) => void; isPending: boolean }; password: { mutate: (form: FormData) => void; isPending: boolean }; passwordFormRef: React.RefObject<HTMLFormElement>; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; twoFactorFormRef: React.RefObject<HTMLFormElement>; setupTwoFactor: { data?: { secret: string; otpauthUrl: string }; mutate: () => void; reset: () => void; isPending: boolean }; enableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }; disableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }; onCopy: (text: string) => void }) {
+function ProfileOverview({ user, profile, password, passwordFormRef, stats, showStats, displayMode, onDisplayModeChange, twoFactorFormRef, setupTwoFactor, enableTwoFactor, disableTwoFactor, onCopy }: { user: { loginName?: string; email: string; displayName: string; role: string; disabled: boolean; twoFactorEnabled: boolean; createdAt: string; limits?: PermissionLimits }; profile: { mutate: (form: FormData) => void; isPending: boolean }; password: { mutate: (form: FormData) => void; isPending: boolean }; passwordFormRef: React.RefObject<HTMLFormElement>; stats?: MailStats; showStats: boolean; displayMode: DisplayMode; onDisplayModeChange: (mode: DisplayMode) => void; twoFactorFormRef: React.RefObject<HTMLFormElement>; setupTwoFactor: { data?: { secret: string; otpauthUrl: string }; mutate: () => void; reset: () => void; isPending: boolean }; enableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }; disableTwoFactor: { mutate: (form: FormData) => void; isPending: boolean }; onCopy: (text: string) => void }) {
   return (
     <div className="space-y-6">
 
@@ -1287,7 +1287,7 @@ function ProfileOverview({ user, profile, password, passwordFormRef, stats, show
           <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); profile.mutate(new FormData(e.currentTarget)) }}>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="用户名">
-                <Input value={user.email} readOnly />
+                <Input value={user.loginName || user.email} readOnly />
               </Field>
               <Field label="显示名称">
                 <Input name="displayName" defaultValue={user.displayName} required />

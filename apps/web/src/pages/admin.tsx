@@ -1896,6 +1896,7 @@ function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: 
   }, [user, open])
   const mut = useMutation({
     mutationFn: (form: FormData) => api.updateUser(user.id, {
+      loginName: String(form.get("loginName") || ""),
       displayName: String(form.get("displayName") || ""),
       role,
       disabled: disabled === "disabled",
@@ -1910,7 +1911,7 @@ function EditUserDialog({ user, permissionGroups, open, onOpenChange }: { user: 
       <DialogContent>
         <DialogHeader><DialogTitle>编辑账号</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mut.mutate(new FormData(e.currentTarget)) }}>
-          <Field name="loginName" label="登录名" value={accountLoginName(user)} readOnly />
+          <Field name="loginName" label="登录名" defaultValue={accountLoginName(user)} type="text" autoComplete="off" />
           <Field name="displayName" label="显示名称" defaultValue={user.displayName} />
           <div className="grid grid-cols-2 gap-3">
             <SelectField label="身份" value={role} onValueChange={(value) => setRole(value as "admin" | "user")} items={[["user", "普通用户"], ["admin", "管理员"]]} disabled={user.protected} />

@@ -14,6 +14,7 @@ type Config struct {
 	DataDir                         string
 	CookieName                      string
 	SessionTTLHours                 int
+	AdminUsername                   string
 	AdminEmail                      string
 	AdminPassword                   string
 	PublicHostname                  string
@@ -70,6 +71,7 @@ func LoadConfig() Config {
 		DataDir:                         dataDir,
 		CookieName:                      getenv("LANQIN_COOKIE_NAME", "lanqin_session"),
 		SessionTTLHours:                 getenvInt("LANQIN_SESSION_TTL_HOURS", 24*7),
+		AdminUsername:                   normalizeLoginName(getenv("LANQIN_ADMIN_USERNAME", "")),
 		AdminEmail:                      strings.ToLower(getenv("LANQIN_ADMIN_EMAIL", "admin@lanqin.local")),
 		AdminPassword:                   getenv("LANQIN_ADMIN_PASSWORD", ""),
 		PublicHostname:                  getenv("LANQIN_PUBLIC_HOSTNAME", "mail.lanqin.local"),

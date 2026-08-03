@@ -120,12 +120,12 @@ configure_first_install() {
   fi
   install -m 0600 "${INSTALL_DIR}/.env.example" "${INSTALL_DIR}/.env"
 
-  local hostname public_url admin_email admin_password update_token
+  local hostname public_url admin_username admin_password update_token
   hostname="$(prompt_value LANQIN_PUBLIC_HOSTNAME "邮件服务器域名，例如 mail.example.com" "")"
   [[ "${hostname}" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || fail "邮件服务器域名格式不正确。"
   public_url="$(prompt_value LANQIN_PUBLIC_BASE_URL "Webmail 访问地址" "https://${hostname}")"
-  admin_email="$(prompt_value LANQIN_ADMIN_EMAIL "初始管理员邮箱" "admin@${hostname#mail.}")"
-  [[ "${admin_email}" == *@*.* ]] || fail "管理员邮箱格式不正确。"
+  admin_username="$(prompt_value LANQIN_ADMIN_USERNAME "初始管理员用户名" "admin")"
+  [[ "${admin_username}" =~ ^[A-Za-z0-9][A-Za-z0-9._%+-]{1,79}$ ]] || fail "管理员用户名格式不正确，需为 2-80 位且不能包含 @。"
   admin_password="$(prompt_value LANQIN_ADMIN_PASSWORD "初始管理员密码" "" true)"
   if [[ -z "${admin_password}" ]]; then
     admin_password="$(random_secret)"
@@ -136,7 +136,7 @@ configure_first_install() {
 
   set_env LANQIN_PUBLIC_HOSTNAME "${hostname}"
   set_env LANQIN_PUBLIC_BASE_URL "${public_url}"
-  set_env LANQIN_ADMIN_EMAIL "${admin_email}"
+  set_env LANQIN_ADMIN_USERNAME "${admin_username}"
   set_env LANQIN_ADMIN_PASSWORD "${admin_password}"
   set_env LANQIN_UPDATE_TOKEN "${update_token}"
   chmod 0600 "${INSTALL_DIR}/.env"

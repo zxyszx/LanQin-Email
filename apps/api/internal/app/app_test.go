@@ -1421,6 +1421,69 @@ func TestLegacyBootstrapMailboxMigrationRemovesImplicitAdminMailbox(t *testing.T
 	}
 }
 
+func TestUsernameBootstrapDoesNotCreateMailboxAndCanBeRenamed(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		Addr:              ":0",
+		DBPath:            filepath.Join(dir, "lanqin.db"),
+		DataDir:           filepath.Join(dir, "data"),
+		CookieName:        "lanqin_test",
+		SessionTTLHours:   24,
+		AdminUsername:     "admin",
+		AdminPassword:     "ChangeMe123!",
+		PublicHostname:    "mail.example.test",
+		PublicBaseURL:     "http://localhost:5173",
+		AllowInsecureHTTP: true,
+	}
+	a := newTestAppWithConfig(t, cfg)
+
+	var domains, mailboxes int
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM domains`).Scan(&domains); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM mailboxes`).Scan(&mailboxes); err != nil {
+		t.Fatal(err)
+	}
+	if domains != 0 || mailboxes != 0 {
+		t.Fatalf("username bootstrap created domains=%d mailboxes=%d", domains, mailboxes)
+	}
+
+	ts := httptest.NewServer(a.Router())
+	defer ts.Close()
+	admin := &testClient{t: t, server: ts}
+	var login struct {
+		User User `json:"user"`
+	}
+	if code := admin.do("POST", "/api/auth/login", map[string]string{"loginName": "admin", "password": "ChangeMe123!"}, &login); code != http.StatusOK {
+		t.Fatalf("username login code=%d", code)
+	}
+	if code := admin.do("POST", "/api/admin/users/"+login.User.ID, map[string]any{
+		"loginName":   "rootadmin",
+		"displayName": "Administrator",
+		"role":        "admin",
+		"disabled":    false,
+	}, nil); code != http.StatusOK {
+		t.Fatalf("rename administrator code=%d", code)
+	}
+	if code := admin.do("POST", "/api/admin/users/"+login.User.ID, map[string]any{
+		"loginName":   "root@example.test",
+		"displayName": "Administrator",
+		"role":        "admin",
+		"disabled":    false,
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("email-shaped login name code=%d", code)
+	}
+
+	oldLogin := &testClient{t: t, server: ts}
+	if code := oldLogin.do("POST", "/api/auth/login", map[string]string{"loginName": "admin", "password": "ChangeMe123!"}, nil); code != http.StatusUnauthorized {
+		t.Fatalf("old username login code=%d", code)
+	}
+	newLogin := &testClient{t: t, server: ts}
+	if code := newLogin.do("POST", "/api/auth/login", map[string]string{"loginName": "rootadmin", "password": "ChangeMe123!"}, nil); code != http.StatusOK {
+		t.Fatalf("renamed username login code=%d", code)
+	}
+}
+
 func TestUserMailboxApplicationUsesAllowedDomainsAndReservedPrefixes(t *testing.T) {
 	a := newTestApp(t)
 	ts := httptest.NewServer(a.Router())

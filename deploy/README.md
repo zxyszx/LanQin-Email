@@ -26,7 +26,7 @@ sudo newszxcn-email rollback
 ```bash
 cd deploy
 cp .env.example .env
-# 修改 LANQIN_PUBLIC_HOSTNAME / LANQIN_PUBLIC_BASE_URL / LANQIN_ADMIN_EMAIL / LANQIN_ADMIN_PASSWORD
+# 修改 LANQIN_PUBLIC_HOSTNAME / LANQIN_PUBLIC_BASE_URL / LANQIN_ADMIN_USERNAME / LANQIN_ADMIN_PASSWORD
 docker compose pull
 docker compose up -d
 ```

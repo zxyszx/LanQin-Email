@@ -187,6 +187,17 @@ func cleanLoginName(value string, fallbacks ...string) (string, error) {
 	return loginName, nil
 }
 
+func cleanUsername(value string) (string, error) {
+	username, err := cleanLoginName(value)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(username, "@") {
+		return "", errors.New("登录名不能使用邮箱地址")
+	}
+	return username, nil
+}
+
 func dedupeEmails(items []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(items))

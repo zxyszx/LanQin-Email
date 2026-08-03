@@ -1410,6 +1410,18 @@ func (a *App) seed(ctx context.Context) error {
 	}
 	now := a.now().UTC().Format(time.RFC3339Nano)
 	userID := newID("usr")
+	if strings.TrimSpace(a.cfg.AdminUsername) != "" {
+		adminUsername, err := cleanUsername(a.cfg.AdminUsername)
+		if err != nil {
+			return fmt.Errorf("invalid admin username: %w", err)
+		}
+		if _, err := a.db.ExecContext(ctx, `INSERT INTO users(id,login_name,email,display_name,role,password_hash,disabled,created_at,updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?)`, userID, adminUsername, adminUsername, "NewSzxcn Admin", "admin", string(passwordHash), 0, now, now); err != nil {
+			return err
+		}
+		a.log.Warn("created default administrator; change LANQIN_ADMIN_PASSWORD in production", "username", adminUsername)
+		return nil
+	}
 	adminEmail := normalizeEmail(a.cfg.AdminEmail)
 	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
 		return errors.New("invalid admin email")
@@ -1451,6 +1463,11 @@ func (a *App) seed(ctx context.Context) error {
 }
 
 func (a *App) ensureConfiguredAdminSuperAdmin(ctx context.Context) error {
+	if adminUsername := normalizeLoginName(a.cfg.AdminUsername); adminUsername != "" && !strings.Contains(adminUsername, "@") {
+		_, err := a.db.ExecContext(ctx, `UPDATE users SET role='admin', disabled=0, updated_at=? WHERE login_name=?`,
+			a.now().UTC().Format(time.RFC3339Nano), adminUsername)
+		return err
+	}
 	adminEmail := normalizeEmail(a.cfg.AdminEmail)
 	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
 		return nil
