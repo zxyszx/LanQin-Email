@@ -157,9 +157,12 @@ prepare_directories() {
 }
 
 wait_for_health() {
-  local attempts="${1:-60}"
+  local attempts="${1:-60}" bind port
+  bind="$(env_value LANQIN_HTTP_BIND || true)"
+  bind="${bind:-80}"
+  port="${bind##*:}"
   for ((i=1; i<=attempts; i++)); do
-    if curl -fsS --max-time 3 http://127.0.0.1/healthz >/dev/null 2>&1; then
+    if curl -fsS --max-time 3 "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -237,7 +240,7 @@ do_rollback() {
 do_status() {
   [[ -f "${INSTALL_DIR}/docker-compose.yml" ]] || fail "尚未安装。"
   compose ps
-  if curl -fsS --max-time 3 http://127.0.0.1/healthz >/dev/null 2>&1; then
+  if wait_for_health 1; then
     success "Web 与 API 健康检查正常。"
   else
     fail "健康检查失败。"
