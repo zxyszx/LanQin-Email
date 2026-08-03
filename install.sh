@@ -210,7 +210,11 @@ do_update() {
   remember_current_image
   log "正在拉取最新版..."
   compose pull
-  compose up -d --remove-orphans
+  if ! compose up -d --remove-orphans; then
+    warn "新版本容器启动失败，正在自动回滚。"
+    do_rollback
+    fail "更新失败，已回滚到原镜像。"
+  fi
   if ! wait_for_health 90; then
     warn "新版本健康检查失败，正在自动回滚。"
     do_rollback

@@ -161,7 +161,7 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-
           labels: |
-            org.opencontainers.image.title=LanQin Email ${{ matrix.name }}
+            org.opencontainers.image.title=NewSzxcn Email ${{ matrix.name }}
             org.opencontainers.image.version=${{ steps.image.outputs.tag }}
 
       - name: Build and push
@@ -227,7 +227,7 @@ jobs:
           fi
 
           cat > release-notes.md <<EOF
-          # LanQin Email ${tag}
+          # NewSzxcn Email ${tag}
 
           自建邮箱 Webmail 全栈方案，包含 Web、API、Postfix、Dovecot、Rspamd 等组件。
 
@@ -265,7 +265,7 @@ jobs:
         shell: bash
         run: |
           tag="${{ needs.release.outputs.tag }}"
-          title="LanQin Email ${tag}"
+          title="NewSzxcn Email ${tag}"
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release edit "${tag}" --title "${title}" --notes-file release-notes.md --latest
           else

@@ -154,6 +154,14 @@ docker compose -f docker-compose.stack.yml -f docker-compose.stack.build.yml up 
 ## 邮件客户端 TLS 证书
 
 Web 站点可以由宿主机 Nginx / 宝塔反代到容器 `80`，但 SMTP/IMAP/POP3 端口不会使用 Web 反代的证书。
+此时可在 `.env` 调整 Web 端口绑定，避免与宿主机 Nginx 的 `80/443` 冲突：
+
+```dotenv
+LANQIN_HTTP_BIND=127.0.0.1:8088
+LANQIN_HTTPS_BIND=127.0.0.1:8443
+```
+
+宿主机 Nginx 再反向代理到 `http://127.0.0.1:8088`。不使用宿主机反向代理时保留默认的 `80` 与 `443` 即可。
 如果第三方客户端连接 `993/995` 时提示证书是 `localhost`，说明 Dovecot 仍在使用容器自带的测试证书。LanQin API 的 SMTP `465/587` submission 不会使用自签测试证书；启用前必须配置可读的真实证书。
 
 生产环境请把域名证书挂载进容器，并在 `.env` 指向证书文件：
