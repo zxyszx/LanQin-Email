@@ -2,8 +2,6 @@
 
 NewSzxcn-Email 是一个可自建、可管理、开箱即用的开源邮箱系统。
 
-在线地址：[mail.newszxcn.com](https://mail.newszxcn.com)
-
 ## 功能
 
 - Webmail 收发邮件、写信、附件、草稿、搜索、星标、标签、已读/未读
@@ -14,15 +12,12 @@ NewSzxcn-Email 是一个可自建、可管理、开箱即用的开源邮箱系�
 
 ## 截图
 
-<p>
+
   <img src="docs/screenshots/mail-preview.png" alt="邮箱首页" width="49%" />
   <img src="docs/screenshots/compose-preview.png" alt="写邮件" width="49%" />
-</p>
-
-<p>
   <img src="docs/screenshots/admin-preview.png" alt="后台管理" width="49%" />
   <img src="docs/screenshots/client-preview.png" alt="邮箱管理" width="49%" />
-</p>
+
 
 ## 技术栈
 
